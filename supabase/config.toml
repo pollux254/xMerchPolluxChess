@@ -1,0 +1,7 @@
+# Supabase configuration for local development and Edge Functions
+
+[functions.xaman-webhook]
+verify_jwt = false
+
+[functions.xaman-createPayload]
+verify_jwt = false

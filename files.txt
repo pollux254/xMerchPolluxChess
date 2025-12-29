@@ -1,0 +1,59 @@
+.
+├── CODEOWNERS
+├── Dockerfile
+├── README.md
+├── app
+│   ├── api
+│   │   ├── auth
+│   │   │   └── xaman
+│   │   │       ├── create-payload
+│   │   │       │   └── xahau-payload
+│   │   │       │       └── route.ts
+│   │   │       └── webhook
+│   │   │           └── xahau
+│   │   │               └── route.ts
+│   │   └── get-xah-price
+│   │       └── route.ts
+│   ├── favicon.ico
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── deploy-summary.txt
+├── entrypoint.sh
+├── env.deploy.example
+├── env.example
+├── evrPanel.txt
+├── files.txt
+├── gitignore.example
+├── .github
+│   └── workflows
+│       └── deploy-edge-functions.yml
+├── lib
+│   └── xahau-payload.ts
+├── next-env.d.ts
+├── next.config.ts
+├── node_modules
+├── package.json
+├── pnpm-lock.yaml
+├── postcss.config.mjs
+├── public
+│   ├── file.svg
+│   ├── globe.svg
+│   ├── next.svg
+│   ├── vercel.svg
+│   ├── window.svg
+│   ├── xMerch.svg
+│   └── xmerch-icon.svg
+├── scripts
+│   └── deploy-supabase.sh
+├── supabase
+│   ├── README.md
+│   ├── config.toml
+│   └── functions
+│       ├── xaman-createPayload
+│       │   └── index.ts
+│       └── xaman-webhook
+│           └── index.ts
+└── tsconfig.json
+
+32 directories, 33 files
