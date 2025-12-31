@@ -12,6 +12,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [theme, setTheme] = useState<Theme>("light")
   const [isFAQOpen, setIsFAQOpen] = useState(false)
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
 
   const donationTiers = [100, 500, 1000]
 
@@ -65,192 +66,279 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-start pt-16 pb-12 px-4 transition-colors duration-200">
+    <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col">
       {/* Theme Switcher */}
-      <div className="fixed top-6 right-6 flex gap-1 rounded-lg border border-border bg-card p-1 z-10">
-        <button onClick={() => setThemeValue("light")} className={`rounded-md p-2 transition-colors ${theme === "light" ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-          <Sun className="h-4 w-4" />
+      <div className="fixed top-4 left-4 md:top-6 md:right-6 md:left-auto z-50 flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
+        <button
+          onClick={() => setThemeValue("light")}
+          className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="Light theme"
+        >
+          <Sun className="h-5 w-5" />
         </button>
-        <button onClick={() => setThemeValue("middle")} className={`rounded-md p-2 transition-colors ${theme === "middle" ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-          <Monitor className="h-4 w-4" />
+        <button
+          onClick={() => setThemeValue("middle")}
+          className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="System theme"
+        >
+          <Monitor className="h-5 w-5" />
         </button>
-        <button onClick={() => setThemeValue("dark")} className={`rounded-md p-2 transition-colors ${theme === "dark" ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-          <Moon className="h-4 w-4" />
+        <button
+          onClick={() => setThemeValue("dark")}
+          className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="Dark theme"
+        >
+          <Moon className="h-5 w-5" />
         </button>
       </div>
 
-      {/* Title + Let's Play Button */}
-      <div className="text-center mt-8 mb-12">
-        <h1 className="text-5xl md:text-6xl font-bold text-foreground mb-4">POLLUX'S CHESS</h1>
-        <p className="text-lg text-muted-foreground mb-10">Skill-based chess tournaments on Xahau</p>
-
-        <Link href="/chess">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold text-2xl py-5 px-12 rounded-xl shadow-xl"
+      {/* Hero Section - Full viewport on all screens, no scrolling required on ≥768px */}
+      <section className="relative flex-1 flex flex-col justify-center items-center px-6 py-20 md:py-0 overflow-hidden bg-gradient-to-b from-background via-muted/20 to-background min-h-screen md:min-h-0 md:h-screen">
+        <div className="absolute inset-0 bg-grid-muted/10 pointer-events-none" />
+        <div className="relative max-w-5xl mx-auto text-center z-10">
+          <motion.h1
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            className="text-5xl md:text-7xl lg:text-8xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent leading-tight"
           >
-            ♟️ Let's Play
-          </motion.button>
-        </Link>
+            POLLUX'S CHESS
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="mt-4 md:mt-6 text-2xl md:text-4xl lg:text-5xl font-semibold text-foreground"
+          >
+            Strategy Meets Finance on Xahau
+          </motion.p>
+          <motion.p
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.4 }}
+            className="mt-6 text-lg md:text-xl lg:text-2xl max-w-3xl mx-auto text-muted-foreground leading-relaxed"
+          >
+            World's first skill-based multiplayer chess wager platform — compete trustlessly for real pots on the Xahau network.
+          </motion.p>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.6 }}
+            className="mt-10 md:mt-12 flex flex-col md:flex-row gap-6 justify-center items-center"
+          >
+            <Link href="/chess" className="w-full md:w-auto max-w-xs md:max-w-none">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-full px-12 py-6 text-2xl md:text-3xl font-bold rounded-2xl bg-primary text-primary-foreground shadow-2xl hover:shadow-primary/30 transition-shadow"
+              >
+                ♟️ Play & Wager Now
+              </motion.button>
+            </Link>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsModalOpen(true)}
+              className="px-10 py-5 text-lg md:text-xl font-medium rounded-2xl border-2 border-primary bg-transparent hover:bg-primary/10 transition-colors"
+            >
+              Support the Protocol
+            </motion.button>
+          </motion.div>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1 }}
+            className="mt-8 md:mt-12 text-sm md:text-base text-muted-foreground"
+          >
+            Powered by xMerch • Trustless on Xahau Network
+          </motion.p>
+        </div>
+      </section>
+
+      {/* Below-the-Fold Content - Only visible after scrolling on desktop (≥768px) */}
+      <div className="w-full bg-muted/10">
+        {/* Important Notice */}
+        <section className="max-w-4xl mx-auto px-6 py-16">
+          <div className="rounded-2xl border border-red-600/40 bg-red-900/20 p-10 text-center backdrop-blur-sm">
+            <h2 className="text-3xl font-bold mb-6">Important Notice</h2>
+            <p className="text-lg leading-relaxed">
+              External platforms like XPMarket, NFTCafe, and Magnetic are not affiliated with POLLUX'S CHESS. 
+              Activities such as AMM, swaps, NFT trading, or token purchases occur at your own risk. 
+              POLLUX'S CHESS is a skill-based chess tournament platform and does not offer or endorse investment or financial services. 
+              Please do your own research before participating.
+            </p>
+          </div>
+        </section>
+
+        {/* FAQ Accordion */}
+        <section className="max-w-4xl mx-auto px-6 py-12">
+          <button
+            onClick={() => setIsFAQOpen(!isFAQOpen)}
+            className="w-full bg-primary/90 hover:bg-primary text-primary-foreground font-bold py-6 px-8 rounded-2xl flex items-center justify-between text-2xl shadow-lg transition-colors"
+          >
+            FAQ
+            {isFAQOpen ? <ChevronUp className="h-8 w-8" /> : <ChevronDown className="h-8 w-8" />}
+          </button>
+
+          {isFAQOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mt-4 rounded-2xl border border-border bg-card/80 backdrop-blur-sm p-10 space-y-8 shadow-xl"
+            >
+              <div>
+                <h3 className="font-bold text-xl">Which wallets can I use?</h3>
+                <p className="text-muted-foreground mt-2">Only Xaman is available for now — your wallet serves as your Player ID.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">How does the tournament work?</h3>
+                <p className="text-muted-foreground mt-2">Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2–16 players), pay the entry fee to join the queue. Once full, bracket matches begin. Winner takes 95% of the pot (5% platform fee). 20-minute default timer.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">How does the NFT prize work?</h3>
+                <p className="text-muted-foreground mt-2">Optional NFT deposits — winner receives all deposited NFTs. If none awarded, NFTs are returned.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">When does the timer start?</h3>
+                <p className="text-muted-foreground mt-2">After White's first move. Default 20 minutes per game.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">What happens if I disconnect?</h3>
+                <p className="text-muted-foreground mt-2">Session recoverable during active tournament. Timer continues.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">What about external platforms?</h3>
+                <p className="text-muted-foreground mt-2">Links provided for convenience only — all external activity at your own risk.</p>
+              </div>
+            </motion.div>
+          )}
+        </section>
+
+        {/* External Platforms */}
+        <section className="max-w-5xl mx-auto px-6 py-16">
+          <h2 className="text-3xl font-bold text-center mb-12">Explore the Ecosystem</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <a href="https://xpmarket.com/token/PLX-rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q" target="_blank" rel="noopener noreferrer" className="group">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+                <p className="text-xl font-semibold group-hover:text-primary transition-colors">PLX AMM at XPMarket</p>
+              </div>
+            </a>
+            <a href="https://xrp.cafe/collection/polluxoriginal" target="_blank" rel="noopener noreferrer" className="group">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+                <p className="text-xl font-semibold group-hover:text-primary transition-colors">Visit PLX on NFTCafe</p>
+              </div>
+            </a>
+            <a href="https://www.xmagnetic.org/dex/PLX%2BrGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q_XRP%2BXRP?network=mainnet" target="_blank" rel="noopener noreferrer" className="group">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+                <p className="text-xl font-semibold group-hover:text-primary transition-colors">Trade $PLX on Magnetic</p>
+              </div>
+            </a>
+          </div>
+        </section>
+
+        {/* Social Links */}
+        <section className="max-w-4xl mx-auto px-6 py-16 text-center pb-24">
+          <p className="text-xl text-muted-foreground mb-8">Follow the journey</p>
+          <div className="flex justify-center gap-12 text-lg">
+            <a href="https://x.com/pollux2789" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              X: @pollux2789
+            </a>
+            <a href="https://t.me/plx589" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              Telegram: @plx589
+            </a>
+            <a href="https://tiktok.com/@p0llux11" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              TikTok: @p0llux11
+            </a>
+          </div>
+        </section>
       </div>
 
-      {/* Donate Card */}
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold text-foreground">Donate to xBase</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Support open-source on Xahau</p>
-        </div>
+      {/* Donation Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="relative w-full max-w-md rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-10 shadow-2xl"
+          >
+            <button
+              onClick={() => setIsModalOpen(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Close modal"
+            >
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex gap-2">
-            {donationTiers.map((tier) => (
+            <div className="text-center mb-8">
+              <h1 className="text-2xl font-bold">Donate to xBase</h1>
+              <p className="mt-2 text-muted-foreground">Support open-source development on Xahau</p>
+            </div>
+
+            <div className="flex flex-col gap-6">
+              <div className="grid grid-cols-3 gap-4">
+                {donationTiers.map((tier) => (
+                  <motion.button
+                    key={tier}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setSelected(tier)}
+                    className={`rounded-xl py-4 font-semibold transition-all ${
+                      selected === tier
+                        ? "bg-primary text-primary-foreground shadow-lg"
+                        : "border border-border bg-muted/50 hover:bg-muted"
+                    }`}
+                  >
+                    {tier} XAH
+                  </motion.button>
+                ))}
+              </div>
+
               <motion.button
-                key={tier}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => setSelected(tier)}
-                className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
-                  selected === tier
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border bg-background text-foreground hover:bg-muted"
-                }`}
+                disabled={loading}
+                onClick={handleDonate}
+                className="w-full rounded-xl bg-primary py-5 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
               >
-                {tier} XAH
+                {loading ? "Preparing..." : `Donate ${selected} XAH via Xaman`}
               </motion.button>
-            ))}
-          </div>
+            </div>
 
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            disabled={loading}
-            onClick={handleDonate}
-            className="mt-2 w-full rounded-lg bg-foreground py-2.5 font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? "Preparing..." : `Donate ${selected} XAH via Xaman`}
-          </motion.button>
+            <p className="mt-8 text-center text-sm text-muted-foreground">
+              Powered by{" "}
+              <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+                xMerch
+              </a>
+            </p>
+
+            <div className="mt-6 flex justify-center gap-8">
+              <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="6" width="18" height="13" rx="2" />
+                  <path d="M3 10h18" />
+                  <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
+                </svg>
+              </a>
+              <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="5" cy="19" r="2" />
+                  <circle cx="19" cy="19" r="2" />
+                  <path d="M12 7v4m0 0l-5 6m5-6l5 6" />
+                </svg>
+              </a>
+              <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
+                </svg>
+              </a>
+            </div>
+          </motion.div>
         </div>
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Powered by{" "}
-          <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline">
-            xMerch
-          </a>
-        </p>
-
-        <div className="mt-4 flex items-center justify-center gap-6">
-          <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="6" width="18" height="13" rx="2" />
-              <path d="M3 10h18" />
-              <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
-            </svg>
-          </a>
-          <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="5" cy="19" r="2" />
-              <circle cx="19" cy="19" r="2" />
-              <path d="M12 7v4m0 0l-5 6m5-6l5 6" />
-            </svg>
-          </a>
-          <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="4" y="4" width="16" height="16" rx="2" />
-              <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
-            </svg>
-          </a>
-        </div>
-      </div>
-
-      {/* Important Notice */}
-      <div className="mt-16 max-w-3xl w-full">
-        <div className="rounded-xl border border-red-600/50 bg-red-900/20 p-8 text-center">
-          <h2 className="text-2xl font-bold text-foreground mb-4">Important Notice</h2>
-          <p className="text-foreground leading-relaxed">
-            External platforms like XPMarket, NFTCafe, and Magnetic are not affiliated with POLLUX'S CHESS. 
-            Activities such as AMM, swaps, NFT trading, or token purchases occur at your own risk. 
-            POLLUX'S CHESS is a skill-based chess tournament platform and does not offer or endorse investment or financial services. 
-            Please do your own research and risks of any external platform before participating!!!
-          </p>
-        </div>
-      </div>
-
-      {/* FAQ Accordion */}
-      <div className="mt-12 max-w-3xl w-full">
-        <button
-          onClick={() => setIsFAQOpen(!isFAQOpen)}
-          className="w-full bg-amber-600/90 hover:bg-amber-600 text-black font-bold py-4 px-6 rounded-t-xl flex items-center justify-between text-xl"
-        >
-          FAQ
-          {isFAQOpen ? <ChevronUp className="h-6 w-6" /> : <ChevronDown className="h-6 w-6" />}
-        </button>
-
-        {isFAQOpen && (
-          <div className="rounded-b-xl border border-border bg-card p-8 space-y-7 text-foreground">
-            <div>
-              <h3 className="font-semibold text-lg">Which wallets can I use?</h3>
-              <p className="text-muted-foreground mt-1">Only Xaman is avaiable for now and your wallet will be used as Player ID.</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-lg">How does the tournament work?</h3>
-              <p className="text-muted-foreground mt-1">Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2, 4, or 8, and 16 players), pay the entry fee to join the queue. Once full, you're matched into a bracket and redirected to the game page. Winner gets 90% of the pot, with a 10% platform fee. Games use a 20-min default timer.</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-lg">How does the NFT prize work?</h3>
-              <p className="text-muted-foreground mt-1">Depositing an NFT is optional. Any number of players can deposit NFTs, and the tournament winner receives all valid deposited NFTs as collectible prizes. For example, if 5 players in a 24-player tournament deposit NFTs, the winner gets all 5. If no NFTs are awarded, all deposited NFTs are returned to their owners' wallets after the tournament.</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-lg">When does the game timer start?</h3>
-              <p className="text-muted-foreground mt-1">The timer starts after the first move by White. All games default to 20 minutes.</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-lg">What happens if I disconnect?</h3>
-              <p className="text-muted-foreground mt-1">You can recover your session while the tournament is active. The timer does not pause during disconnection.</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-lg">What about external platforms?</h3>
-              <p className="text-muted-foreground mt-1">Links to XPMarket, NFTCafe, and Magnetic are provided for convenience. These services are not controlled by POLLUX'S CHESS, and all activities are at your own risk externally. See the warning above.</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* External Platform Buttons */}
-      <div className="mt-12 flex flex-wrap justify-center gap-5">
-        <a href="https://xpmarket.com/token/PLX-rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q" target="_blank" rel="noopener noreferrer">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition">
-            PLX AMM at XPMarket
-          </button>
-        </a>
-        <a href="https://xrp.cafe/collection/polluxoriginal" target="_blank" rel="noopener noreferrer">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition">
-            Visit PLX on NFTCafe
-          </button>
-        </a>
-        <a href="https://www.xmagnetic.org/dex/PLX%2BrGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q_XRP%2BXRP?network=mainnet" target="_blank" rel="noopener noreferrer">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition">
-            Trade $PLX on Magnetic
-          </button>
-        </a>
-      </div>
-
-      {/* Social Links */}
-      <div className="mt-12 text-center space-y-3">
-        <p className="text-muted-foreground">Follow us:</p>
-        <div className="flex justify-center gap-10 text-lg">
-          <a href="https://x.com/pollux2789" target="_blank" rel="noopener noreferrer" className="text-foreground hover:underline">
-            X: @pollux2789
-          </a>
-          <a href="https://t.me/plx589" target="_blank" rel="noopener noreferrer" className="text-foreground hover:underline">
-            Telegram: @plx589
-          </a>
-          <a href="https://tiktok.com/@p0llux11" target="_blank" rel="noopener noreferrer" className="text-foreground hover:underline">
-            TikTok: @p0llux11 
-          </a>
-        </div>
-      </div>
+      )}
     </div>
   )
 }

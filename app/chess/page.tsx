@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Moon, Sun, Monitor } from "lucide-react"
+import Link from "next/link"
 
 type Theme = "light" | "middle" | "dark"
 
@@ -36,9 +37,7 @@ export default function Chess() {
     localStorage.setItem("theme", newTheme)
   }
 
-  // === LOGIN (unchanged) ===
   async function handleLogin() {
-    // ... your existing handleLogin code (exactly the same)
     try {
       setLoadingLogin(true)
 
@@ -107,14 +106,12 @@ export default function Chess() {
     }
   }
 
-  // === NEW: DISCONNECT FUNCTION ===
   const handleDisconnect = () => {
     setPlayerID(null)
     localStorage.removeItem("playerID")
     alert("Wallet disconnected successfully!")
   }
 
-  // === PAY FEE & FREE PLAY (unchanged) ===
   async function handlePayFee() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -123,7 +120,7 @@ export default function Chess() {
 
     try {
       setLoadingPay(true)
-      const memo = `Chess Tournament - ${selectedSize === 1 ? '1vs1' : `${selectedSize} Players`}`
+      const memo = `Chess Tournament - ${selectedSize === 1 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} XAH`
 
       const res = await fetch("/api/auth/xaman/create-payload/xahau-payload", {
         method: "POST",
@@ -137,18 +134,22 @@ export default function Chess() {
       })
 
       if (!res.ok) {
-        console.error("Payment payload error:", await res.text())
-        alert("Error preparing payment.")
+        const errorText = await res.text()
+        console.error("Payment payload error:", errorText)
+        alert("Error preparing payment. Check console for details.")
         return
       }
 
       const data = await res.json()
-      const { nextUrl, gameUrl } = data
 
-      if (!nextUrl || !gameUrl) {
-        alert("Missing payment links")
+      // Ensure both nextUrl and gameUrl are present
+      if (!data.nextUrl || !data.gameUrl) {
+        console.error("Missing links from payload:", data)
+        alert("Payment prepared but missing redirect links. Try again.")
         return
       }
+
+      const { nextUrl, gameUrl } = data
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
@@ -157,8 +158,13 @@ export default function Chess() {
       } else {
         const xamanWin = window.open(nextUrl, "_blank", "width=480,height=720")
 
+        if (!xamanWin) {
+          alert("Popup blocked. Please allow popups for Xaman sign-in.")
+          return
+        }
+
         const checkClosed = setInterval(() => {
-          if (xamanWin?.closed) {
+          if (xamanWin.closed) {
             clearInterval(checkClosed)
             window.location.href = gameUrl
           }
@@ -174,15 +180,15 @@ export default function Chess() {
         }
         document.addEventListener("visibilitychange", visibilityHandler)
 
-        setTimeout(() => clearInterval(checkClosed) || (window.location.href = gameUrl), 15000)
         setTimeout(() => {
+          clearInterval(checkClosed)
           document.removeEventListener("visibilitychange", visibilityHandler)
           window.location.href = gameUrl
         }, 30000)
       }
     } catch (err) {
       console.error("Payment error:", err)
-      alert("Payment failed.")
+      alert("Payment failed. Check console.")
     } finally {
       setLoadingPay(false)
     }
@@ -197,104 +203,146 @@ export default function Chess() {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-background transition-colors duration-200">
-      {/* Theme Switcher */}
-      <div className="fixed top-6 right-6 flex gap-1 rounded-lg border border-border bg-card p-1">
-        <button onClick={() => setThemeValue("light")} className={`rounded-md p-2 transition-colors ${theme === "light" ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-          <Sun className="h-4 w-4" />
-        </button>
-        <button onClick={() => setThemeValue("middle")} className={`rounded-md p-2 transition-colors ${theme === "middle" ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-          <Monitor className="h-4 w-4" />
-        </button>
-        <button onClick={() => setThemeValue("dark")} className={`rounded-md p-2 transition-colors ${theme === "dark" ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-          <Moon className="h-4 w-4" />
-        </button>
+    <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center px-6 py-12">
+      {/* Top Bar: Home Link + Theme Switcher */}
+      <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 flex items-center justify-between z-50">
+        {/* Home Link - Top Left */}
+        <Link href="/" className="text-lg font-semibold text-foreground hover:text-primary transition-colors">
+          ← Home
+        </Link>
+
+        {/* Theme Switcher - Top Right */}
+        <div className="flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
+          <button
+            onClick={() => setThemeValue("light")}
+            className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            aria-label="Light theme"
+          >
+            <Sun className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => setThemeValue("middle")}
+            className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            aria-label="System theme"
+          >
+            <Monitor className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => setThemeValue("dark")}
+            className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            aria-label="Dark theme"
+          >
+            <Moon className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold text-foreground">PolluxChess Tournament</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Connect wallet to play and pay fees on Xahau</p>
+      {/* Main Card - Modern, elevated design matching landing page */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="w-full max-w-md rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-10 shadow-2xl"
+      >
+        <div className="text-center mb-8">
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+            PolluxChess Tournament
+          </h1>
+          <p className="mt-3 text-base text-muted-foreground">
+            Skill-based chess wagering on Xahau
+          </p>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
           {!playerID ? (
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               disabled={loadingLogin}
               onClick={handleLogin}
-              className="w-full rounded-lg bg-foreground py-2.5 font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-2xl bg-primary py-5 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-lg"
             >
               {loadingLogin ? "Connecting..." : "Connect with Xaman"}
             </motion.button>
           ) : (
             <>
-              <p className="text-center text-sm font-medium text-foreground">
-                Player ID: <span className="font-mono">{playerID.slice(0, 8)}...{playerID.slice(-4)}</span>
-              </p>
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground mb-1">Connected as</p>
+                <p className="font-mono text-lg font-semibold text-foreground">
+                  {playerID.slice(0, 10)}...{playerID.slice(-6)}
+                </p>
+              </div>
 
-              {/* Disconnect Button */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleDisconnect}
-                className="w-full rounded-lg bg-red-600 hover:bg-red-700 py-2.5 font-medium text-white transition"
+                className="w-full rounded-xl bg-red-600/90 hover:bg-red-700 py-3 font-semibold text-white transition-all"
               >
                 Disconnect Wallet
               </motion.button>
 
-              <div className="flex gap-2">
-                {sizes.map((size) => (
-                  <motion.button
-                    key={size}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setSelectedSize(size)}
-                    className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
-                      selectedSize === size
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border bg-background text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {size === 1 ? "1 vs 1" : `${size} Players`}
-                  </motion.button>
-                ))}
+              {/* Tournament Size Selection */}
+              <div>
+                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Tournament Size</p>
+                <div className="grid grid-cols-4 gap-3">
+                  {sizes.map((size) => (
+                    <motion.button
+                      key={size}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setSelectedSize(size)}
+                      className={`rounded-xl py-4 font-bold transition-all ${
+                        selectedSize === size
+                          ? "bg-primary text-primary-foreground shadow-lg"
+                          : "border border-border bg-muted/50 hover:bg-muted"
+                      }`}
+                    >
+                      {size === 1 ? "1v1" : `${size}`}
+                    </motion.button>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex gap-2">
-                {feeTiers.map((tier) => (
-                  <motion.button
-                    key={tier}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setSelectedFee(tier)}
-                    className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
-                      selectedFee === tier
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border bg-background text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {tier} XAH
-                  </motion.button>
-                ))}
+              {/* Entry Fee Selection */}
+              <div>
+                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Entry Fee (XAH)</p>
+                <div className="grid grid-cols-4 gap-3">
+                  {feeTiers.map((tier) => (
+                    <motion.button
+                      key={tier}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setSelectedFee(tier)}
+                      className={`rounded-xl py-4 font-bold transition-all ${
+                        selectedFee === tier
+                          ? "bg-primary text-primary-foreground shadow-lg"
+                          : "border border-border bg-muted/50 hover:bg-muted"
+                      }`}
+                    >
+                      {tier}
+                    </motion.button>
+                  ))}
+                </div>
               </div>
 
+              {/* Play Button */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 disabled={loadingPay}
                 onClick={handlePayFee}
-                className="mt-2 w-full rounded-lg bg-foreground py-2.5 font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-2xl bg-primary py-6 font-bold text-primary-foreground text-xl shadow-2xl hover:shadow-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loadingPay ? "Preparing..." : `Pay ${selectedFee} XAH → Game`}
+                {loadingPay ? "Preparing Transaction..." : `Pay ${selectedFee} XAH → Enter Tournament`}
               </motion.button>
 
+              {/* Free Play Button */}
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleFreePlay}
-                className="mt-3 w-full rounded-xl bg-gradient-to-r from-green-500 to-green-600 py-3 font-bold text-white shadow-lg hover:from-green-600 hover:to-green-700 hover:shadow-xl"
+                className="w-full rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 py-5 font-bold text-white text-lg shadow-xl hover:shadow-green-500/30 transition-all"
               >
                 🚀 FREE PLAY vs BOT
               </motion.button>
@@ -302,37 +350,37 @@ export default function Chess() {
           )}
         </div>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
+        <p className="mt-10 text-center text-sm text-muted-foreground">
           Powered by{" "}
-          <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline">
+          <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary transition-colors">
             xMerch
           </a>
         </p>
 
-        <div className="mt-4 flex items-center justify-center gap-6">
-          <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <div className="mt-6 flex items-center justify-center gap-10">
+          <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="3" y="6" width="18" height="13" rx="2" />
               <path d="M3 10h18" />
               <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
             </svg>
           </a>
-          <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="5" r="2" />
               <circle cx="5" cy="19" r="2" />
               <circle cx="19" cy="19" r="2" />
               <path d="M12 7v4m0 0l-5 6m5-6l5 6" />
             </svg>
           </a>
-          <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="4" y="4" width="16" height="16" rx="2" />
               <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
             </svg>
           </a>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

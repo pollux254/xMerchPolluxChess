@@ -9,9 +9,17 @@ interface PayloadResponse {
   error?: string
 }
 
+interface RequestBody {
+  amount: number
+  player?: string
+  size?: number
+  memo?: string
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { amount } = await req.json()
+    const body: RequestBody = await req.json()
+    const { amount, player, size = 1, memo } = body
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
@@ -19,7 +27,10 @@ export async function POST(req: NextRequest) {
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+
+    // Build gameUrl for redirect after successful payment
+    const gameUrl = `${baseUrl}/gamechessboard?player=${encodeURIComponent(player || "")}&fee=${amount}&size=${size}`
 
     if (supabaseUrl && anonKey) {
       const edgeFunctionUrl = `${supabaseUrl}/functions/v1/xaman-createPayload`
@@ -29,12 +40,13 @@ export async function POST(req: NextRequest) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${anonKey}`,
-          apikey: anonKey
+          apikey: anonKey,
         },
         body: JSON.stringify({
           amount,
-          returnUrl: baseUrl ? `${baseUrl}/` : undefined
-        })
+          memo: memo || `Chess Tournament Entry - ${size === 1 ? "1v1" : `${size} Players`} - ${amount} XAH`,
+          returnUrl: baseUrl,
+        }),
       })
 
       const data: PayloadResponse = await response.json()
@@ -51,7 +63,8 @@ export async function POST(req: NextRequest) {
         ok: true,
         uuid: data.uuid,
         nextUrl: data.nextUrl,
-        qrUrl: data.qrUrl
+        qrUrl: data.qrUrl,
+        gameUrl, // ← Added for frontend redirect after signing
       })
     }
 
@@ -81,16 +94,29 @@ export async function POST(req: NextRequest) {
         TransactionType: "Payment",
         Destination: destination,
         Amount: String(drops),
-        NetworkID: networkId
+        NetworkID: networkId,
+        Memos: memo
+          ? [
+              {
+                Memo: {
+                  MemoType: Buffer.from("Text").toString("hex").toUpperCase(),
+                  MemoData: Buffer.from(memo).toString("hex").toUpperCase(),
+                },
+              },
+            ]
+          : undefined,
       },
       options: {
         submit: true,
-        expire: 300
+        expire: 300,
+        return_url: {
+          web: gameUrl, // ← Redirect to game after signing
+        },
       },
       custom_meta: {
-        instruction: `Donate ${amount} XAH via Xaman`,
-        identifier: `xbase-local-${Date.now()}`
-      }
+        instruction: memo || `Chess Tournament Entry - ${amount} XAH`,
+        identifier: `polluxchess-${Date.now()}`,
+      },
     }
 
     const response = await xaman.payload.create(payload)
@@ -104,7 +130,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       uuid: response.uuid,
       nextUrl: response.next.always,
-      qrUrl: response.refs?.qr_png
+      qrUrl: response.refs?.qr_png,
+      gameUrl, // ← Always include gameUrl for frontend
     })
   } catch (err) {
     console.error("[xBase] Payload creation error:", err)
