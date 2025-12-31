@@ -7,7 +7,7 @@ import Chessground from "@bezalel6/react-chessground"
 import "chessground/assets/chessground.base.css"
 import "chessground/assets/chessground.cburnett.css" // Lichess look with colored squares + pieces
 
-// Add this import for the correct Key type
+// Import the Key type for proper typing of squares
 import type { Key } from "chessground/types"
 
 export default function Game() {
@@ -19,8 +19,8 @@ export default function Game() {
   const [fen, setFen] = useState(game.fen())
   const [isPlayerWhite, setIsPlayerWhite] = useState<boolean | null>(null)
   const [status, setStatus] = useState("Assigning color...")
-  const [lastMove, setLastMove] = useState<[string, string] | undefined>(undefined)
-  // Fixed type: Map<Key, Key[]> instead of Map<string, string[]>
+  // Typed with Key for lastMove and dests
+  const [lastMove, setLastMove] = useState<[Key, Key] | undefined>(undefined)
   const [dests, setDests] = useState<Map<Key, Key[]>>(new Map())
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function Game() {
 
     const map = new Map<Key, Key[]>()
     game.moves({ verbose: true }).forEach((move) => {
-      if (!map.has(move.from)) map.set(move.from as Key, [])
+      if (!map.has(move.from as Key)) map.set(move.from as Key, [])
       map.get(move.from as Key)!.push(move.to as Key)
     })
     setDests(map)
@@ -57,7 +57,7 @@ export default function Game() {
     if (move) {
       setGame(gameCopy)
       setFen(gameCopy.fen())
-      setLastMove([from, to])
+      setLastMove([from as Key, to as Key])
     }
   }
 
@@ -82,7 +82,7 @@ export default function Game() {
       const to = botMove.slice(2, 4)
       setGame(gameCopy)
       setFen(gameCopy.fen())
-      setLastMove([from, to])
+      setLastMove([from as Key, to as Key])
     }, 600 + Math.random() * 1200)
 
     return () => clearTimeout(timeout)
@@ -105,7 +105,7 @@ export default function Game() {
         const to = botMove.slice(2, 4)
         setGame(gameCopy)
         setFen(gameCopy.fen())
-        setLastMove([from, to])
+        setLastMove([from as Key, to as Key])
       }, 800)
 
       return () => clearTimeout(timeout)
@@ -156,7 +156,7 @@ export default function Game() {
         You are {isPlayerWhite ? "White ♔" : "Black ♚"}
       </p>
 
-      {/* Smaller board — perfect for phones/iPad/laptop */}
+      {/* Responsive chessboard */}
       <div className="w-full max-w-[min(85vw,400px)]">
         <Chessground
           fen={fen}
