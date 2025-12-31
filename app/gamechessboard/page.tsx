@@ -3,7 +3,11 @@
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Chess } from "chess.js"
-import Chessground from "@react-chess/chessground"
+
+// Fixed import — this one has full TypeScript support for all props you're using
+import Chessground from "@bezalel6/react-chessground"
+
+// Keep these CSS imports exactly as they are (they work with the new package)
 import "chessground/assets/chessground.base.css"
 import "chessground/assets/chessground.cburnett.css" // Lichess look with colored squares + pieces
 
@@ -152,7 +156,7 @@ export default function Game() {
         You are {isPlayerWhite ? "White ♔" : "Black ♚"}
       </p>
 
-      {/* Smaller board — perfect for phones/iPad/laptop */}
+      {/* Responsive chessboard */}
       <div className="w-full max-w-[min(85vw,400px)]">
         <Chessground
           fen={fen}
