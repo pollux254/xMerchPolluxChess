@@ -3,13 +3,12 @@
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Chess } from "chess.js"
-
-// Fixed import — this one has full TypeScript support for all props you're using
 import Chessground from "@bezalel6/react-chessground"
-
-// Keep these CSS imports exactly as they are (they work with the new package)
 import "chessground/assets/chessground.base.css"
 import "chessground/assets/chessground.cburnett.css" // Lichess look with colored squares + pieces
+
+// Add this import for the correct Key type
+import type { Key } from "chessground/types"
 
 export default function Game() {
   const searchParams = useSearchParams()
@@ -21,7 +20,8 @@ export default function Game() {
   const [isPlayerWhite, setIsPlayerWhite] = useState<boolean | null>(null)
   const [status, setStatus] = useState("Assigning color...")
   const [lastMove, setLastMove] = useState<[string, string] | undefined>(undefined)
-  const [dests, setDests] = useState<Map<string, string[]>>(new Map())
+  // Fixed type: Map<Key, Key[]> instead of Map<string, string[]>
+  const [dests, setDests] = useState<Map<Key, Key[]>>(new Map())
 
   useEffect(() => {
     setIsPlayerWhite(Math.random() < 0.5)
@@ -37,10 +37,10 @@ export default function Game() {
       return
     }
 
-    const map = new Map<string, string[]>()
+    const map = new Map<Key, Key[]>()
     game.moves({ verbose: true }).forEach((move) => {
-      if (!map.has(move.from)) map.set(move.from, [])
-      map.get(move.from)!.push(move.to)
+      if (!map.has(move.from)) map.set(move.from as Key, [])
+      map.get(move.from as Key)!.push(move.to as Key)
     })
     setDests(map)
   }, [fen, isPlayerWhite, game])
@@ -156,7 +156,7 @@ export default function Game() {
         You are {isPlayerWhite ? "White ♔" : "Black ♚"}
       </p>
 
-      {/* Responsive chessboard */}
+      {/* Smaller board — perfect for phones/iPad/laptop */}
       <div className="w-full max-w-[min(85vw,400px)]">
         <Chessground
           fen={fen}
