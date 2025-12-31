@@ -5,10 +5,14 @@ import { useEffect, useState } from "react"
 import { Chess } from "chess.js"
 import Chessground from "@bezalel6/react-chessground"
 import "chessground/assets/chessground.base.css"
-import "chessground/assets/chessground.cburnett.css" // Lichess look with colored squares + pieces
+import "chessground/assets/chessground.cburnett.css"
 
-// Import the Key type for proper typing of squares
+// Import the Key type for proper typing
 import type { Key } from "chessground/types"
+
+// This forces the page to be fully dynamic (SSR + client hydration)
+// No static prerendering → fixes the useSearchParams suspense error cleanly
+export const dynamic = "force-dynamic"
 
 export default function Game() {
   const searchParams = useSearchParams()
@@ -19,7 +23,6 @@ export default function Game() {
   const [fen, setFen] = useState(game.fen())
   const [isPlayerWhite, setIsPlayerWhite] = useState<boolean | null>(null)
   const [status, setStatus] = useState("Assigning color...")
-  // Typed with Key for lastMove and dests
   const [lastMove, setLastMove] = useState<[Key, Key] | undefined>(undefined)
   const [dests, setDests] = useState<Map<Key, Key[]>>(new Map())
 
@@ -156,7 +159,6 @@ export default function Game() {
         You are {isPlayerWhite ? "White ♔" : "Black ♚"}
       </p>
 
-      {/* Responsive chessboard */}
       <div className="w-full max-w-[min(85vw,400px)]">
         <Chessground
           fen={fen}
