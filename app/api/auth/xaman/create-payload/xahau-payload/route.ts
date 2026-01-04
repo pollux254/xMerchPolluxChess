@@ -11,6 +11,8 @@ interface PayloadResponse {
 
 interface RequestBody {
   amount: number
+  currency?: string // e.g. "XAH", "PLX", "EVR", etc.
+  issuer?: string | null // null or undefined for native XAH
   player?: string
   size?: number
   memo?: string
@@ -19,32 +21,37 @@ interface RequestBody {
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json()
-    const { amount, player, size = 1, memo } = body
+    const { amount, currency = "XAH", issuer, player, size = 1, memo } = body
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
 
     // Build gameUrl for redirect after successful payment
-    const gameUrl = `${baseUrl}/gamechessboard?player=${encodeURIComponent(player || "")}&fee=${amount}&size=${size}`
+    const gameUrl = `${baseUrl}/gamechessboard?player=${encodeURIComponent(player || "")}&fee=${amount}&size=${size}&currency=${currency}${issuer ? `&issuer=${issuer}` : ""}`
 
-    if (supabaseUrl && anonKey) {
-      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/xaman-createPayload`
+    const displayAmount = `${amount} ${currency}${issuer ? ` (issued by ${issuer.slice(0, 8)}...${issuer.slice(-4)})` : ""}`
+
+    const fullMemo = memo || `Chess Tournament Entry - ${size === 1 ? "1v1" : `${size} Players`} - ${displayAmount}`
+
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      // Your existing Supabase edge function path – make sure it supports currency + issuer!
+      const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-createPayload`
 
       const response = await fetch(edgeFunctionUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${anonKey}`,
-          apikey: anonKey,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         },
         body: JSON.stringify({
           amount,
-          memo: memo || `Chess Tournament Entry - ${size === 1 ? "1v1" : `${size} Players`} - ${amount} XAH`,
+          currency,
+          issuer,
+          memo: fullMemo,
           returnUrl: baseUrl,
         }),
       })
@@ -64,57 +71,68 @@ export async function POST(req: NextRequest) {
         uuid: data.uuid,
         nextUrl: data.nextUrl,
         qrUrl: data.qrUrl,
-        gameUrl, // ← Added for frontend redirect after signing
+        gameUrl,
       })
     }
 
-    // Fallback for local dev when Supabase is not configured
+    // Fallback local Xumm SDK
     const apiKey = process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
     const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
     const destination = process.env.XAH_DESTINATION || process.env.XAMAN_DESTINATION_ADDRESS || ""
     const networkId = Number(process.env.NEXT_PUBLIC_XAHAU_NETWORK_ID || 21337)
 
     if (!apiKey || !apiSecret || !destination) {
-      console.error("[xBase] Missing Supabase config and local Xaman credentials")
       return NextResponse.json(
-        { ok: false, error: "Server configuration error: set Supabase env OR local XUMM_* + XAH_DESTINATION" },
+        { ok: false, error: "Server configuration error" },
         { status: 500 }
       )
     }
 
-    const drops = Math.round(Number(amount) * 1_000_000)
-    if (Number.isNaN(drops) || drops <= 0) {
-      return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
-    }
-
     const xaman = new XummSdk(apiKey, apiSecret)
 
-    const payload: XummTypes.XummPostPayloadBodyJson = {
-      txjson: {
-        TransactionType: "Payment",
-        Destination: destination,
-        Amount: String(drops),
-        NetworkID: networkId,
-        Memos: memo
-          ? [
-              {
-                Memo: {
-                  MemoType: Buffer.from("Text").toString("hex").toUpperCase(),
-                  MemoData: Buffer.from(memo).toString("hex").toUpperCase(),
-                },
+    const txjson: any = {
+      TransactionType: "Payment",
+      Destination: destination,
+      NetworkID: networkId,
+      Memos: fullMemo
+        ? [
+            {
+              Memo: {
+                MemoType: Buffer.from("Text").toString("hex").toUpperCase(),
+                MemoData: Buffer.from(fullMemo).toString("hex").toUpperCase(),
               },
-            ]
-          : undefined,
-      },
+            },
+          ]
+        : undefined,
+    }
+
+    if (currency === "XAH" || !issuer) {
+      // Native XAH payment
+      const drops = Math.round(Number(amount) * 1_000_000)
+      if (Number.isNaN(drops) || drops <= 0) {
+        return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
+      }
+      txjson.Amount = String(drops)
+    } else {
+      // Issued currency payment
+      txjson.Amount = {
+        value: String(amount),
+        currency: currency,
+        issuer: issuer,
+      }
+    }
+
+    const payload: XummTypes.XummPostPayloadBodyJson = {
+      txjson,
       options: {
         submit: true,
         expire: 300,
         return_url: {
-          web: gameUrl, // ← Redirect to game after signing
+          web: gameUrl,
         },
       },
       custom_meta: {
-        instruction: memo || `Chess Tournament Entry - ${amount} XAH`,
+        instruction: fullMemo,
         identifier: `polluxchess-${Date.now()}`,
       },
     }
@@ -122,7 +140,6 @@ export async function POST(req: NextRequest) {
     const response = await xaman.payload.create(payload)
 
     if (!response?.next?.always) {
-      console.error("[xBase] Xaman did not return a signing URL")
       return NextResponse.json({ ok: false, error: "Failed to create payment request" }, { status: 500 })
     }
 
@@ -131,7 +148,7 @@ export async function POST(req: NextRequest) {
       uuid: response.uuid,
       nextUrl: response.next.always,
       qrUrl: response.refs?.qr_png,
-      gameUrl, // ← Always include gameUrl for frontend
+      gameUrl,
     })
   } catch (err) {
     console.error("[xBase] Payload creation error:", err)

@@ -2,10 +2,25 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Moon, Sun, Monitor } from "lucide-react"
+import { Moon, Sun, Monitor, LogOut } from "lucide-react"
 import Link from "next/link"
 
 type Theme = "light" | "middle" | "dark"
+
+type Asset = {
+  currency: string
+  issuer: string | null // null for native XAH
+  label: string
+}
+
+const assets: Asset[] = [
+  { currency: "XAH", issuer: null, label: "XAH (Native)" },
+  { currency: "PLX", issuer: "rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q", label: "PLX" },
+  { currency: "XRP", issuer: null, label: "XRP (IOU - trusted issuer required)" }, // Note: XRP is often issued IOU on Xahau, e.g., GateHub
+  { currency: "EVR", issuer: "rEvernodee8dJLaFsujS6q1EiXvZYmHXr8", label: "EVR" },
+  { currency: "FUZZY", issuer: "rhCAT4hRdi2Y9puNdkpMzxrdKa5wkppR62", label: "FUZZY" },
+  { currency: "RLUSD", issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", label: "RLUSD" },
+]
 
 export default function Chess() {
   const [playerID, setPlayerID] = useState<string | null>(null)
@@ -13,7 +28,11 @@ export default function Chess() {
   const [loadingPay, setLoadingPay] = useState(false)
   const [selectedFee, setSelectedFee] = useState<number>(10)
   const [selectedSize, setSelectedSize] = useState<number>(1)
+  const [selectedAssetIndex, setSelectedAssetIndex] = useState(0)
+  const [showAssetDropdown, setShowAssetDropdown] = useState(false)
   const [theme, setTheme] = useState<Theme>("light")
+
+  const selectedAsset = assets[selectedAssetIndex]
 
   const feeTiers = [10, 25, 50, 100]
   const sizes = [1, 4, 8, 16]
@@ -38,6 +57,7 @@ export default function Chess() {
   }
 
   async function handleLogin() {
+    // ... (unchanged login logic)
     try {
       setLoadingLogin(true)
 
@@ -120,17 +140,24 @@ export default function Chess() {
 
     try {
       setLoadingPay(true)
-      const memo = `Chess Tournament - ${selectedSize === 1 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} XAH`
+      const memo = `Chess Tournament - ${selectedSize === 1 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} ${selectedAsset.currency}`
+
+      const payloadBody: any = {
+        amount: selectedFee,
+        currency: selectedAsset.currency,
+        memo,
+        player: playerID,
+        size: selectedSize,
+      }
+
+      if (selectedAsset.issuer) {
+        payloadBody.issuer = selectedAsset.issuer
+      }
 
       const res = await fetch("/api/auth/xaman/create-payload/xahau-payload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: selectedFee,
-          memo,
-          player: playerID,
-          size: selectedSize,
-        }),
+        body: JSON.stringify(payloadBody),
       })
 
       if (!res.ok) {
@@ -142,7 +169,6 @@ export default function Chess() {
 
       const data = await res.json()
 
-      // Ensure both nextUrl and gameUrl are present
       if (!data.nextUrl || !data.gameUrl) {
         console.error("Missing links from payload:", data)
         alert("Payment prepared but missing redirect links. Try again.")
@@ -204,40 +230,25 @@ export default function Chess() {
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center px-6 py-12">
-      {/* Top Bar: Home Link + Theme Switcher */}
+      {/* Top Bar */}
       <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 flex items-center justify-between z-50">
-        {/* Home Link - Top Left */}
         <Link href="/" className="text-lg font-semibold text-foreground hover:text-primary transition-colors">
           ← Home
         </Link>
 
-        {/* Theme Switcher - Top Right */}
         <div className="flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
-          <button
-            onClick={() => setThemeValue("light")}
-            className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-            aria-label="Light theme"
-          >
+          <button onClick={() => setThemeValue("light")} className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Light theme">
             <Sun className="h-5 w-5" />
           </button>
-          <button
-            onClick={() => setThemeValue("middle")}
-            className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-            aria-label="System theme"
-          >
+          <button onClick={() => setThemeValue("middle")} className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="System theme">
             <Monitor className="h-5 w-5" />
           </button>
-          <button
-            onClick={() => setThemeValue("dark")}
-            className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-            aria-label="Dark theme"
-          >
+          <button onClick={() => setThemeValue("dark")} className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Dark theme">
             <Moon className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      {/* Main Card - Modern, elevated design matching landing page */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -266,21 +277,21 @@ export default function Chess() {
             </motion.button>
           ) : (
             <>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground mb-1">Connected as</p>
-                <p className="font-mono text-lg font-semibold text-foreground">
-                  {playerID.slice(0, 10)}...{playerID.slice(-6)}
-                </p>
+              <div className="flex items-center justify-between">
+                <div className="text-center flex-1">
+                  <p className="text-sm text-muted-foreground mb-1">Connected as</p>
+                  <p className="font-mono text-lg font-semibold text-foreground">
+                    {playerID.slice(0, 10)}...{playerID.slice(-6)}
+                  </p>
+                </div>
+                <button
+                  onClick={handleDisconnect}
+                  className="ml-4 rounded-full p-3 bg-red-600/90 hover:bg-red-700 text-white transition-all"
+                  aria-label="Disconnect wallet"
+                >
+                  <LogOut className="h-5 w-5" />
+                </button>
               </div>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleDisconnect}
-                className="w-full rounded-xl bg-red-600/90 hover:bg-red-700 py-3 font-semibold text-white transition-all"
-              >
-                Disconnect Wallet
-              </motion.button>
 
               {/* Tournament Size Selection */}
               <div>
@@ -304,9 +315,34 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* Entry Fee Selection */}
+              {/* Asset & Entry Fee Selection */}
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Entry Fee (XAH)</p>
+                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Entry Fee</p>
+                <div className="relative mb-4">
+                  <button
+                    onClick={() => setShowAssetDropdown(!showAssetDropdown)}
+                    className="w-full rounded-xl py-4 px-6 font-bold text-left bg-muted/50 border border-border hover:bg-muted transition-all flex items-center justify-between"
+                  >
+                    <span>{selectedAsset.label}</span>
+                    <span className="text-xl">▼</span>
+                  </button>
+                  {showAssetDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-border bg-card shadow-lg overflow-hidden z-10">
+                      {assets.map((asset, index) => (
+                        <button
+                          key={index}
+                          onClick={() => {
+                            setSelectedAssetIndex(index)
+                            setShowAssetDropdown(false)
+                          }}
+                          className="w-full px-6 py-4 text-left hover:bg-muted transition-all"
+                        >
+                          {asset.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-4 gap-3">
                   {feeTiers.map((tier) => (
                     <motion.button
@@ -326,7 +362,7 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* Play Button */}
+              {/* Play Buttons */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -334,15 +370,16 @@ export default function Chess() {
                 onClick={handlePayFee}
                 className="w-full rounded-2xl bg-primary py-6 font-bold text-primary-foreground text-xl shadow-2xl hover:shadow-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loadingPay ? "Preparing Transaction..." : `Pay ${selectedFee} XAH → Enter Tournament`}
+                {loadingPay ? "Preparing Transaction..." : `Pay ${selectedFee} ${selectedAsset.currency} → Enter Tournament`}
               </motion.button>
 
-              {/* Free Play Button */}
+              <div className="text-center text-muted-foreground font-medium my-2">Or</div>
+
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleFreePlay}
-                className="w-full rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 py-5 font-bold text-white text-lg shadow-xl hover:shadow-green-500/30 transition-all"
+                className="w-full rounded-2xl bg-card border-2 border-border py-5 font-bold text-foreground text-lg shadow-xl hover:shadow-muted/30 transition-all"
               >
                 🚀 FREE PLAY vs BOT
               </motion.button>
@@ -358,6 +395,7 @@ export default function Chess() {
         </p>
 
         <div className="mt-6 flex items-center justify-center gap-10">
+          {/* Icons unchanged */}
           <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
             <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="3" y="6" width="18" height="13" rx="2" />

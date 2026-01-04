@@ -192,7 +192,7 @@ export default function Home() {
               </div>
               <div>
                 <h3 className="font-bold text-xl">How does the tournament work?</h3>
-                <p className="text-muted-foreground mt-2">Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2–16 players), pay the entry fee to join the queue. Once full, bracket matches begin. Winner takes 95% of the pot (5% platform fee). 20-minute default timer.</p>
+                <p className="text-muted-foreground mt-2">Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2–16 players), pay the entry fee to join the queue. Once full, bracket matches begin. Winner takes 90% of the pot (10% platform fee). 20-minute default timer.</p>
               </div>
               <div>
                 <h3 className="font-bold text-xl">How does the NFT prize work?</h3>
