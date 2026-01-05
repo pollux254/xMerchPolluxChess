@@ -6,39 +6,11 @@ import { useEffect, useState } from "react"
 import { Chess } from "chess.js"
 import Chessground from "@bezalel6/react-chessground"
 
-// Import base + custom blue theme + merida pieces (clean, modern like chess.com)
+// Base layout + coordinates + highlights
 import "chessground/assets/chessground.base.css"
-import "chessground/assets/chessground.cburnett.css" // fallback if needed
-import "@bezalel6/react-chessground/dist/style.css"
 
-// Custom CSS for xmerch blue board theme (inspired by chess.com blue)
-const customBoardCSS = `
-.cg-wrap piece { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
-.cg-wrap coords.ranks, .cg-wrap coords.files { font-weight: bold; color: #f0f0f0; opacity: 0.8; }
-.cg-wrap square.last-move { background-color: rgba(255, 255, 0, 0.4) !important; }
-.cg-wrap square.check { background: radial-gradient(circle, rgba(255,0,0,.4) 20%, transparent 60%) !important; }
-.cg-wrap square.premovable { background-color: rgba(20, 85, 30, 0.4) !important; }
-.cg-wrap square.selected { background-color: rgba(20, 85, 30, 0.5) !important; }
-.cg-wrap square.move-dest { background: radial-gradient(circle, rgba(20, 85, 30, .4) 40%, transparent 60%) !important; }
-.cg-wrap square.oc.move-dest { background: radial-gradient(circle, rgba(20, 85, 30, .4) 40%, transparent 60%) !important; }
-`
-
-// Inline the custom board colors
-const styleTag = document.createElement("style")
-styleTag.innerHTML = `
-.cg-wrap {
-  --cg-square-light: #dee3e6;
-  --cg-square-dark: #8ca2ad;
-  background-image: 
-    linear-gradient(45deg, var(--cg-square-dark) 25%, transparent 25%),
-    linear-gradient(-45deg, var(--cg-square-dark) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, var(--cg-square-dark) 75%),
-    linear-gradient(-45deg, transparent 75%, var(--cg-square-dark) 75%);
-  background-size: 100px 100px;
-  background-position: 0 0, 50px 0, 50px -50px, 0px 50px;
-}
-` + customBoardCSS
-document.head.appendChild(styleTag)
+// Crisp modern pieces (chess.com style)
+import "chessground/assets/chessground.cburnett.css"
 
 import type { Key } from "chessground/types"
 
@@ -54,11 +26,73 @@ function GameContent() {
   const [lastMove, setLastMove] = useState<[Key, Key] | undefined>(undefined)
   const [dests, setDests] = useState<Map<Key, Key[]>>(new Map())
 
+  // Custom PolluxChess Dark/Light Blue Board with Grid Lines
+  useEffect(() => {
+    const customTheme = `
+      /* Dark fallback */
+      .cg-wrap {
+        background: #0f172a !important;
+      }
+
+      /* Dark blue squares */
+      .cg-wrap square {
+        background-color: #1e3a8a !important; /* Deep dark blue */
+        border: 1px solid #172554 !important; /* Subtle dark grid line */
+      }
+
+      /* Light blue alternating squares */
+      .cg-wrap square:nth-child(16n+1), .cg-wrap square:nth-child(16n+3),
+      .cg-wrap square:nth-child(16n+5), .cg-wrap square:nth-child(16n+7),
+      .cg-wrap square:nth-child(16n+9), .cg-wrap square:nth-child(16n+11),
+      .cg-wrap square:nth-child(16n+13), .cg-wrap square:nth-child(16n+15),
+      .cg-wrap square:nth-child(16n+2), .cg-wrap square:nth-child(16n+4),
+      .cg-wrap square:nth-child(16n+6), .cg-wrap square:nth-child(16n+8),
+      .cg-wrap square:nth-child(16n+10), .cg-wrap square:nth-child(16n+12),
+      .cg-wrap square:nth-child(16n+14), .cg-wrap square:nth-child(16n+16) {
+        background-color: #60a5fa !important; /* Bright light blue */
+        border: 1px solid #3b82f6 !important; /* Slightly lighter grid line */
+      }
+
+      /* Last move highlight */
+      .cg-wrap square.last-move {
+        box-shadow: inset 0 0 0 4px #fbbf24 !important;
+        background-color: rgba(251, 191, 36, 0.5) !important;
+      }
+
+      /* Check highlight */
+      .cg-wrap square.check {
+        box-shadow: inset 0 0 0 5px #ef4444 !important;
+      }
+
+      /* Legal move dots */
+      .cg-wrap square.move-dest {
+        background: radial-gradient(circle, #06b6d4 35%, transparent 65%) !important;
+      }
+
+      /* Coordinates */
+      .cg-wrap coords {
+        color: #f1f5f9 !important;
+        font-weight: bold;
+        text-shadow: 1px 1px 2px #000;
+      }
+    `
+
+    const style = document.createElement("style")
+    style.innerHTML = customTheme
+    document.head.appendChild(style)
+
+    return () => {
+      if (document.head.contains(style)) {
+        document.head.removeChild(style)
+      }
+    }
+  }, [])
+
+  // Rest of your logic unchanged...
   useEffect(() => {
     setIsPlayerWhite(Math.random() < 0.5)
   }, [])
 
-  // Legal moves destinations
   useEffect(() => {
     if (isPlayerWhite === null) return
 
@@ -92,7 +126,7 @@ function GameContent() {
     }
   }
 
-  // Bot move
+  // Bot move logic (same as before)
   useEffect(() => {
     if (isPlayerWhite === null || game.isGameOver()) return
 
@@ -109,17 +143,16 @@ function GameContent() {
       const gameCopy = new Chess(game.fen())
       gameCopy.move(botMove)
 
-      const from = botMove.slice(0, 2)
-      const to = botMove.slice(2, 4)
+      const from = botMove.slice(0, 2) as Key
+      const to = botMove.slice(2, 4) as Key
       setGame(gameCopy)
       setFen(gameCopy.fen())
-      setLastMove([from as Key, to as Key])
+      setLastMove([from, to])
     }, 600 + Math.random() * 1200)
 
     return () => clearTimeout(timeout)
   }, [fen, isPlayerWhite])
 
-  // Bot first move if player is Black
   useEffect(() => {
     if (isPlayerWhite === false && game.turn() === "w" && !game.isGameOver()) {
       setStatus("Bot is thinking… ♘💭")
@@ -132,18 +165,17 @@ function GameContent() {
         const gameCopy = new Chess(game.fen())
         gameCopy.move(botMove)
 
-        const from = botMove.slice(0, 2)
-        const to = botMove.slice(2, 4)
+        const from = botMove.slice(0, 2) as Key
+        const to = botMove.slice(2, 4) as Key
         setGame(gameCopy)
         setFen(gameCopy.fen())
-        setLastMove([from as Key, to as Key])
+        setLastMove([from, to])
       }, 800)
 
       return () => clearTimeout(timeout)
     }
   }, [isPlayerWhite])
 
-  // Status update
   useEffect(() => {
     if (isPlayerWhite === null) return
 
@@ -163,67 +195,73 @@ function GameContent() {
 
   if (isPlayerWhite === null) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-black text-white">
-        <p className="text-4xl font-bold">{status}</p>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 via-indigo-900/30 to-purple-900 text-white">
+        <div className="text-center">
+          <div className="w-32 h-32 border-8 border-purple-500/60 rounded-full flex items-center justify-center mx-auto mb-10 animate-spin">
+            <span className="text-5xl">♟️</span>
+          </div>
+          <p className="text-5xl font-black">{status}</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black text-white flex flex-col items-center justify-center gap-8 px-4 py-12">
-      <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-600">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex flex-col items-center justify-center gap-10 px-6 py-16">
+      <h1 className="text-6xl md:text-8xl font-black bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 bg-clip-text text-transparent drop-shadow-2xl">
         PolluxChess
       </h1>
 
-      <div className="bg-gray-800/60 backdrop-blur rounded-2xl p-6 shadow-2xl border border-purple-500/30">
-        <div className="text-center space-y-2">
-          <p className="text-lg text-gray-300">Player</p>
-          <p className="font-mono text-2xl font-bold text-cyan-300">
-            {playerID.length > 16 ? `${playerID.slice(0, 10)}...${playerID.slice(-6)}` : playerID}
+      <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-purple-500/40 max-w-lg w-full">
+        <div className="text-center space-y-4">
+          <p className="text-2xl text-gray-300 uppercase tracking-widest">Player</p>
+          <p className="font-mono text-4xl font-bold text-cyan-300">
+            {playerID.length > 16 ? `${playerID.slice(0, 8)}...${playerID.slice(-6)}` : playerID}
           </p>
-          <p className="text-xl text-gray-300 mt-4">
+          <div className="h-1 bg-gradient-to-r from-cyan-400 to-purple-600 rounded-full"></div>
+          <p className="text-3xl font-bold text-emerald-400">
             {fee === "0" ? "FREE PLAY" : `${fee} XAH Entry`}
           </p>
         </div>
       </div>
 
-      <p className="text-4xl font-bold drop-shadow-lg">
-        You are {isPlayerWhite ? "White ♔" : "Black ♚"}
-      </p>
-
-      <div className="rounded-2xl overflow-hidden shadow-2xl border-4 border-purple-600/50 bg-gray-800 p-4">
-        <Chessground
-          width={480}
-          height={480}
-          fen={fen}
-          orientation={isPlayerWhite ? "white" : "black"}
-          turnColor={game.turn() === "w" ? "white" : "black"}
-          coordinates={true}
-          viewOnly={false}
-          movable={{
-            free: false,
-            color: isPlayerWhite ? "white" : "black",
-            dests,
-            showDests: true,
-            events: { after: onMove },
-          }}
-          highlight={{
-            lastMove: true,
-            check: true,
-          }}
-          premovable={{ enabled: true }}
-          lastMove={lastMove}
-          animation={{ enabled: true, duration: 300 }}
-          style={{ aspectRatio: "1 / 1" }}
-        />
+      <div className="text-center">
+        <p className="text-5xl md:text-6xl font-black mb-4 drop-shadow-xl">You are</p>
+        <p className="text-7xl md:text-8xl font-black">{isPlayerWhite ? "White ♔" : "Black ♚"}</p>
       </div>
 
-      <p className="text-4xl font-bold drop-shadow-md">{status}</p>
+      <div className="relative">
+        <div className="bg-gray-800/60 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border-4 border-purple-600/60">
+          <Chessground
+            width={480}
+            height={480}
+            fen={fen}
+            orientation={isPlayerWhite ? "white" : "black"}
+            turnColor={game.turn() === "w" ? "white" : "black"}
+            coordinates={true}
+            highlight={{ lastMove: true, check: true }}
+            premovable={{ enabled: true }}
+            movable={{
+              free: false,
+              color: isPlayerWhite ? "white" : "black",
+              dests,
+              showDests: true,
+              events: { after: onMove },
+            }}
+            lastMove={lastMove}
+            animation={{ enabled: true, duration: 250 }}
+          />
+        </div>
+      </div>
+
+      <p className="text-5xl md:text-6xl font-black text-center px-8 py-6 bg-gray-800/70 backdrop-blur-xl rounded-3xl border-4 border-indigo-500/50 shadow-2xl">
+        {status}
+      </p>
 
       {game.isGameOver() && (
         <button
           onClick={() => window.location.reload()}
-          className="px-12 py-6 text-3xl font-bold bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-2xl shadow-xl transition transform hover:scale-105"
+          className="px-20 py-10 text-4xl font-black bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 rounded-3xl shadow-2xl border-4 border-emerald-400/60 hover:border-emerald-300 transition-all duration-300 transform hover:scale-105 active:scale-95"
         >
           Play Again 🎲
         </button>
@@ -235,8 +273,8 @@ function GameContent() {
 export default function Game() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-black text-white">
-        <p className="text-4xl font-bold">Loading game...</p>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-purple-900 text-white">
+        <p className="text-5xl font-bold">Loading PolluxChess...</p>
       </div>
     }>
       <GameContent />
