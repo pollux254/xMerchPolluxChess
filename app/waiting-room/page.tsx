@@ -74,15 +74,17 @@ export default function WaitingRoom() {
           table: "tournaments",
           filter: `id=eq.${tournamentId}`,
         },
-        (payload) => {
+        (payload: any) => {
           console.log("Tournament updated:", payload)
-          setTournament(payload.new)
-          
-          // Redirect to game if tournament starts
-          if (payload.new.status === "in_progress") {
-            setTimeout(() => {
-              window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-            }, 2000)
+          if (payload.new) {
+            setTournament(payload.new)
+            
+            // Redirect to game if tournament starts
+            if (payload.new.status === "in_progress") {
+              setTimeout(() => {
+                window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
+              }, 2000)
+            }
           }
         }
       )
@@ -98,7 +100,7 @@ export default function WaitingRoom() {
           table: "tournament_players",
           filter: `tournament_id=eq.${tournamentId}`,
         },
-        (payload) => {
+        (payload: any) => {
           console.log("Players updated:", payload)
           fetchPlayers()
         }
