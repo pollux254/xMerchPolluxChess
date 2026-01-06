@@ -60,10 +60,13 @@ export default function Chess() {
     try {
       setLoadingLogin(true)
 
+      // FIX 1: Add returnUrl to stay on /chess page after signin
+      const returnUrl = `${window.location.origin}/chess`
+
       const res = await fetch("/api/auth/xaman/create-signin/xahau-signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ returnUrl }), // Pass returnUrl
       })
 
       if (!res.ok) {
@@ -81,10 +84,16 @@ export default function Chess() {
       }
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      
+      // FIX 2: Store that we're waiting for login
+      sessionStorage.setItem("waitingForLogin", "true")
+      
       if (isMobile) {
+        // Mobile: redirect to Xaman app, it will return to /chess
         window.location.href = nextUrl
       } else {
-        window.open(nextUrl, "_blank")
+        // Desktop: open in popup
+        window.open(nextUrl, "_blank", "width=480,height=720")
       }
 
       const ws = new WebSocket(websocketUrl)
@@ -105,6 +114,7 @@ export default function Chess() {
             if (payloadData.account) {
               setPlayerID(payloadData.account)
               localStorage.setItem("playerID", payloadData.account)
+              sessionStorage.removeItem("waitingForLogin")
               alert(`Logged in successfully!\nPlayer ID: ${payloadData.account}`)
             }
           } catch (err) {
@@ -113,12 +123,14 @@ export default function Chess() {
           }
           ws.close()
         } else if (status.signed === false || status.expired) {
+          sessionStorage.removeItem("waitingForLogin")
           alert(status.signed === false ? "Sign-in rejected." : "Sign-in expired.")
           ws.close()
         }
       }
     } catch (err) {
       console.error("Login error:", err)
+      sessionStorage.removeItem("waitingForLogin")
       alert("Login failed.")
     } finally {
       setLoadingLogin(false)
@@ -178,73 +190,168 @@ export default function Chess() {
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
+      // FIX 3: Better mobile/desktop handling
+      let xamanWin: Window | null = null
+
       if (isMobile) {
+        // Mobile: Store payment state before redirecting
+        sessionStorage.setItem("waitingForPayment", uuid)
+        sessionStorage.setItem("tournamentConfig", JSON.stringify({
+          playerAddress: playerID,
+          tournamentSize: selectedSize,
+          entryFee: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer || null
+        }))
         window.location.href = nextUrl
       } else {
-        const xamanWin = window.open(nextUrl, "_blank", "width=480,height=720")
+        // Desktop: Open popup
+        xamanWin = window.open(nextUrl, "_blank", "width=480,height=720")
 
         if (!xamanWin) {
           alert("Popup blocked. Please allow popups for Xaman sign-in.")
+          setLoadingPay(false)
           return
         }
+      }
 
-        // Listen for payment success via WebSocket
-        const ws = new WebSocket(websocketUrl)
-        
-        ws.onmessage = async (event) => {
-          const status = JSON.parse(event.data)
+      // Listen for payment success via WebSocket
+      const ws = new WebSocket(websocketUrl)
+      
+      ws.onmessage = async (event) => {
+        const status = JSON.parse(event.data)
 
-          if (status.signed === true) {
-            ws.close()
-            
-            // Payment successful! Now join tournament
-            try {
-              const joinRes = await fetch("/api/tournaments/join", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  playerAddress: playerID,
-                  tournamentSize: selectedSize,
-                  entryFee: selectedFee,
-                  currency: selectedAsset.currency,
-                  issuer: selectedAsset.issuer || null
-                })
+        if (status.signed === true) {
+          ws.close()
+          
+          // FIX 4: Close popup window on desktop
+          if (xamanWin && !xamanWin.closed) {
+            xamanWin.close()
+          }
+          
+          // Payment successful! Now join tournament
+          try {
+            const joinRes = await fetch("/api/tournaments/join", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                playerAddress: playerID,
+                tournamentSize: selectedSize,
+                entryFee: selectedFee,
+                currency: selectedAsset.currency,
+                issuer: selectedAsset.issuer || null
               })
+            })
 
-              if (!joinRes.ok) {
-                throw new Error("Failed to join tournament")
-              }
+            if (!joinRes.ok) {
+              throw new Error("Failed to join tournament")
+            }
 
-              const joinData = await joinRes.json()
+            const joinData = await joinRes.json()
 
-              if (joinData.success) {
-                // Redirect to waiting room
-                window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
-              } else {
-                alert("Payment successful but failed to join tournament. Contact support.")
-              }
-            } catch (err) {
-              console.error("Tournament join error:", err)
+            if (joinData.success) {
+              // Clean up session storage
+              sessionStorage.removeItem("waitingForPayment")
+              sessionStorage.removeItem("tournamentConfig")
+              
+              // Redirect to waiting room
+              window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+            } else {
               alert("Payment successful but failed to join tournament. Contact support.")
             }
-          } else if (status.signed === false || status.expired) {
-            alert(status.signed === false ? "Payment rejected." : "Payment expired.")
-            ws.close()
+          } catch (err) {
+            console.error("Tournament join error:", err)
+            alert("Payment successful but failed to join tournament. Contact support.")
           }
-        }
-
-        ws.onerror = (error) => {
-          console.error("WebSocket error:", error)
+        } else if (status.signed === false || status.expired) {
+          // FIX 5: Close popup on rejection/expiry too
+          if (xamanWin && !xamanWin.closed) {
+            xamanWin.close()
+          }
+          alert(status.signed === false ? "Payment rejected." : "Payment expired.")
           ws.close()
+          setLoadingPay(false)
         }
+      }
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        if (xamanWin && !xamanWin.closed) {
+          xamanWin.close()
+        }
+        ws.close()
+        setLoadingPay(false)
       }
     } catch (err) {
       console.error("Payment error:", err)
       alert("Payment failed. Check console.")
-    } finally {
       setLoadingPay(false)
     }
   }
+
+  // FIX 6: Handle return from mobile Xaman
+  useEffect(() => {
+    const checkMobileReturn = async () => {
+      const waitingForPayment = sessionStorage.getItem("waitingForPayment")
+      const tournamentConfig = sessionStorage.getItem("tournamentConfig")
+      
+      if (waitingForPayment && tournamentConfig) {
+        // User returned from mobile payment
+        setLoadingPay(true)
+        
+        try {
+          const config = JSON.parse(tournamentConfig)
+          
+          // Check payment status
+          const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ uuid: waitingForPayment }),
+          })
+
+          if (!payloadRes.ok) throw new Error("Failed to check payment status")
+          
+          const payloadData = await payloadRes.json()
+          
+          if (payloadData.meta?.signed === true) {
+            // Payment was successful, join tournament
+            const joinRes = await fetch("/api/tournaments/join", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(config)
+            })
+
+            if (!joinRes.ok) {
+              throw new Error("Failed to join tournament")
+            }
+
+            const joinData = await joinRes.json()
+
+            if (joinData.success) {
+              // Clean up
+              sessionStorage.removeItem("waitingForPayment")
+              sessionStorage.removeItem("tournamentConfig")
+              
+              // Redirect to waiting room
+              window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+            }
+          } else {
+            // Payment not completed
+            sessionStorage.removeItem("waitingForPayment")
+            sessionStorage.removeItem("tournamentConfig")
+            alert("Payment was not completed.")
+          }
+        } catch (err) {
+          console.error("Mobile return error:", err)
+          alert("Failed to process payment. Please try again.")
+        } finally {
+          setLoadingPay(false)
+        }
+      }
+    }
+
+    checkMobileReturn()
+  }, [])
 
   const handleFreePlay = () => {
     if (!playerID) {
@@ -396,7 +503,7 @@ export default function Chess() {
                 onClick={handlePayFee}
                 className="w-full rounded-2xl bg-primary py-6 font-bold text-primary-foreground text-xl shadow-2xl hover:shadow-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loadingPay ? "Preparing Transaction..." : `Pay ${selectedFee} ${selectedAsset.currency} → Enter Tournament`}
+                {loadingPay ? "Processing..." : `Pay ${selectedFee} ${selectedAsset.currency} → Enter Tournament`}
               </motion.button>
 
               <div className="text-center text-muted-foreground font-medium my-2">Or</div>
