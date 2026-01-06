@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { XummSdk } from "xumm-sdk"
+import { XummSdk, XummTypes } from "xumm-sdk"
 
 interface SignInResponse {
   ok: boolean
