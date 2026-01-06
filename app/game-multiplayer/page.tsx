@@ -1,8 +1,9 @@
 "use client"
 
+import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 
-export default function MultiplayerGame() {
+function GameContent() {
   const searchParams = useSearchParams()
   const tournamentId = searchParams.get("tournamentId")
 
@@ -19,7 +20,7 @@ export default function MultiplayerGame() {
             Tournament ID: {tournamentId || "Unknown"}
           </p>
           <p className="text-lg text-gray-400">
-            The multiplayer chess game will be implemented next. For now, this is a placeholder.
+            The multiplayer chess game will be implemented next.
           </p>
           
           <button
@@ -31,5 +32,17 @@ export default function MultiplayerGame() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function MultiplayerGame() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/30 to-black flex items-center justify-center">
+        <p className="text-4xl font-bold text-white">Loading...</p>
+      </div>
+    }>
+      <GameContent />
+    </Suspense>
   )
 }
