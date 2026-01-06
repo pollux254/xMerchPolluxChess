@@ -63,13 +63,11 @@ export async function POST(req: NextRequest) {
 
     const xaman = new XummSdk(apiKey, apiSecret)
 
-    const txjson = {
-      TransactionType: "SignIn",
-      NetworkID: networkId,
-    }
-
-    const payload = {
-      txjson,
+    const payload: XummTypes.XummPostPayloadBodyJson = {
+      txjson: {
+        TransactionType: "SignIn",
+        NetworkID: networkId,
+      },
       options: {
         submit: false,
         expire: 300,
