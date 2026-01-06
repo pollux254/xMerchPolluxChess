@@ -13,7 +13,17 @@
       "glob": "^10.5.0",
       "cross-spawn": "^7.0.5",
       "brace-expansion": "^2.0.2"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "core-js",
+      "core-js-pure",
+      "es5-ext"
+    ],
+    "onlyBuiltDependencies": [
+      "bufferutil",
+      "sharp",
+      "utf-8-validate"
+    ]
   },
   "dependencies": {
     "@bezalel6/react-chessground": "^2.1.1",
@@ -23,20 +33,22 @@
     "dotenv": "^17.2.3",
     "framer-motion": "^12.23.24",
     "lucide-react": "^0.454.0",
-    "next": "16.0.7",
-    "react": "19.2.0",
+    "next": "16.1.1",
+    "react": "19.2.3",
     "react-chessboard": "^5.8.6",
     "react-chessground": "^1.5.0",
-    "react-dom": "19.2.0",
+    "react-dom": "19.2.3",
     "stockfish": "^17.1.0",
     "websocket": "^1.0.35",
     "xumm-sdk": "^1.11.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",
-    "@types/node": "^24.10.1",
+    "@types/node": "^25.0.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3"
   }
