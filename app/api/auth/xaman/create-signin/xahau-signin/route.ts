@@ -1,105 +1,109 @@
-// Supabase Edge Function for creating Xahau SignIn payloads
-// Deploy: supabase functions deploy xaman-signinPayload
-// Secrets: XUMM_API_KEY, XUMM_API_SECRET
+import { type NextRequest, NextResponse } from "next/server"
+import { XummSdk } from "xumm-sdk"
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-
-declare const Deno: {
-  env: {
-    get(key: string): string | undefined
-  }
+interface SignInResponse {
+  ok: boolean
+  uuid?: string
+  nextUrl?: string
+  websocketUrl?: string
+  qrUrl?: string
+  error?: string
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-}
-
-interface PayloadRequest {
-  returnUrl?: string
-}
-
-serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders })
-  }
-
+export async function POST(req: NextRequest) {
   try {
-    const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY")
-    const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET")
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
 
-    if (!XUMM_API_KEY || !XUMM_API_SECRET) {
-      console.error("Missing XUMM_API_KEY or XUMM_API_SECRET")
-      return new Response(
-        JSON.stringify({ ok: false, error: "Server configuration error: Missing Xaman credentials" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    // Check if using Supabase edge function
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-signinPayload`
+
+      const response = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        },
+        body: JSON.stringify({
+          returnUrl: baseUrl,
+        }),
+      })
+
+      const data: SignInResponse = await response.json()
+
+      if (!response.ok || !data.ok) {
+        console.error("[SignIn] Edge function error:", data)
+        return NextResponse.json(
+          { ok: false, error: data.error || "Failed to create sign-in request" },
+          { status: response.status }
+        )
+      }
+
+      return NextResponse.json({
+        ok: true,
+        uuid: data.uuid,
+        nextUrl: data.nextUrl,
+        qrUrl: data.qrUrl,
+        websocketUrl: data.websocketUrl,
+      })
+    }
+
+    // Fallback: Use local Xumm SDK
+    const apiKey = process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
+    const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
+    const networkId = Number(process.env.NEXT_PUBLIC_XAHAU_NETWORK_ID || 21337)
+
+    if (!apiKey || !apiSecret) {
+      return NextResponse.json(
+        { ok: false, error: "Server configuration error: Missing Xaman credentials" },
+        { status: 500 }
       )
     }
 
-    const body: PayloadRequest = await req.json()
-    const { returnUrl } = body
+    const xaman = new XummSdk(apiKey, apiSecret)
 
-    const txjson: Record<string, unknown> = {
+    const txjson = {
       TransactionType: "SignIn",
-      NetworkID: 21337,
-    }
-
-    const payloadOptions: Record<string, unknown> = {
-      submit: false,
-      expire: 300, // 5 minutes
-    }
-
-    // Only set return URL if provided
-    if (returnUrl) {
-      payloadOptions.return_url = { web: returnUrl }
+      NetworkID: networkId,
     }
 
     const payload = {
       txjson,
-      options: payloadOptions,
+      options: {
+        submit: false,
+        expire: 300,
+        return_url: {
+          web: baseUrl,
+        },
+      },
       custom_meta: {
         instruction: "Sign in to PolluxChess",
         identifier: `polluxchess-signin-${Date.now()}`,
       },
     }
 
-    const response = await fetch("https://xumm.app/api/v1/platform/payload", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": XUMM_API_KEY,
-        "X-API-Secret": XUMM_API_SECRET,
-      },
-      body: JSON.stringify(payload),
-    })
+    const response = await xaman.payload.create(payload)
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error("Xaman API error:", response.status, errorText)
-      return new Response(JSON.stringify({ ok: false, error: `Xaman API error: ${response.status}` }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
+    if (!response?.next?.always) {
+      return NextResponse.json(
+        { ok: false, error: "Failed to create sign-in request" },
+        { status: 500 }
+      )
     }
 
-    const data = await response.json()
-    console.log("SignIn payload created:", data.uuid)
-
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        uuid: data.uuid,
-        nextUrl: data.next?.always,
-        qrUrl: data.refs?.qr_png,
-        websocketUrl: data.refs?.websocket_status,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    )
-  } catch (error) {
-    console.error("Edge function error:", error)
-    return new Response(
-      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Internal server error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    return NextResponse.json({
+      ok: true,
+      uuid: response.uuid,
+      nextUrl: response.next.always,
+      qrUrl: response.refs?.qr_png,
+      websocketUrl: response.refs?.websocket_status,
+    })
+  } catch (err) {
+    console.error("[SignIn] Error:", err)
+    return NextResponse.json(
+      { ok: false, error: "Internal server error" },
+      { status: 500 }
     )
   }
-})
+}

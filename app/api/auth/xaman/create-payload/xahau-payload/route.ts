@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
 
     const fullMemo = memo || `Chess Tournament Entry - ${size === 1 ? "1v1" : `${size} Players`} - ${displayAmount}`
 
+    // Check if using Supabase edge function
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-createPayload`
 
@@ -49,14 +50,14 @@ export async function POST(req: NextRequest) {
           currency,
           issuer,
           memo: fullMemo,
-          returnUrl: `${baseUrl}/chess`, // Return to chess page, not game
+          returnUrl: `${baseUrl}/chess`,
         }),
       })
 
       const data: PayloadResponse = await response.json()
 
       if (!response.ok || !data.ok) {
-        console.error("[xBase] Edge function error:", data)
+        console.error("[Payment] Edge function error:", data)
         return NextResponse.json(
           { ok: false, error: data.error || "Failed to create payment request" },
           { status: response.status }
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Fallback local Xumm SDK
+    // Fallback: Use local Xumm SDK
     const apiKey = process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
     const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
     const destination = process.env.XAH_DESTINATION || process.env.XAMAN_DESTINATION_ADDRESS || ""
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
         submit: true,
         expire: 300,
         return_url: {
-          web: `${baseUrl}/chess`, // Return to chess page after payment
+          web: `${baseUrl}/chess`,
         },
       },
       custom_meta: {
@@ -148,7 +149,7 @@ export async function POST(req: NextRequest) {
       websocketUrl: response.refs?.websocket_status,
     })
   } catch (err) {
-    console.error("[xBase] Payload creation error:", err)
+    console.error("[Payment] Error:", err)
     return NextResponse.json({ ok: false, error: "Internal server error" }, { status: 500 })
   }
 }
