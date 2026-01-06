@@ -1,41 +1,105 @@
-import { NextResponse } from "next/server"
+// Supabase Edge Function for creating Xahau SignIn payloads
+// Deploy: supabase functions deploy xaman-signinPayload
+// Secrets: XUMM_API_KEY, XUMM_API_SECRET
 
-export async function POST(request: Request) {
-  // These match your .env.local exactly
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const apikey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-  if (!supabaseUrl || !apikey) {
-    console.error("Missing Supabase env vars:", { supabaseUrl: !!supabaseUrl, apikey: !!apikey })
-    return NextResponse.json(
-      { error: "Missing Supabase configuration" },
-      { status: 500 }
-    )
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined
+  }
+}
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+}
+
+interface PayloadRequest {
+  returnUrl?: string
+}
+
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders })
   }
 
   try {
-    const body = await request.json()
+    const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY")
+    const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET")
 
-    const res = await fetch(`${supabaseUrl}/functions/v1/xaman-signinPayload`, {
+    if (!XUMM_API_KEY || !XUMM_API_SECRET) {
+      console.error("Missing XUMM_API_KEY or XUMM_API_SECRET")
+      return new Response(
+        JSON.stringify({ ok: false, error: "Server configuration error: Missing Xaman credentials" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      )
+    }
+
+    const body: PayloadRequest = await req.json()
+    const { returnUrl } = body
+
+    const txjson: Record<string, unknown> = {
+      TransactionType: "SignIn",
+      NetworkID: 21337,
+    }
+
+    const payloadOptions: Record<string, unknown> = {
+      submit: false,
+      expire: 300, // 5 minutes
+    }
+
+    // Only set return URL if provided
+    if (returnUrl) {
+      payloadOptions.return_url = { web: returnUrl }
+    }
+
+    const payload = {
+      txjson,
+      options: payloadOptions,
+      custom_meta: {
+        instruction: "Sign in to PolluxChess",
+        identifier: `polluxchess-signin-${Date.now()}`,
+      },
+    }
+
+    const response = await fetch("https://xumm.app/api/v1/platform/payload", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: apikey,
-        Authorization: `Bearer ${apikey}`,
+        "X-API-Key": XUMM_API_KEY,
+        "X-API-Secret": XUMM_API_SECRET,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     })
 
-    const data = await res.json()
-
-    if (!res.ok) {
-      console.error("Supabase function error:", data)
-      return NextResponse.json({ error: data.error || "Failed to create signin payload" }, { status: res.status })
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error("Xaman API error:", response.status, errorText)
+      return new Response(JSON.stringify({ ok: false, error: `Xaman API error: ${response.status}` }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
     }
 
-    return NextResponse.json(data)
-  } catch (err) {
-    console.error("Unexpected error in signin route:", err)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    const data = await response.json()
+    console.log("SignIn payload created:", data.uuid)
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        uuid: data.uuid,
+        nextUrl: data.next?.always,
+        qrUrl: data.refs?.qr_png,
+        websocketUrl: data.refs?.websocket_status,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    )
+  } catch (error) {
+    console.error("Edge function error:", error)
+    return new Response(
+      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Internal server error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    )
   }
-}
+})
