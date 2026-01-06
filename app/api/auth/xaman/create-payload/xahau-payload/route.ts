@@ -6,13 +6,14 @@ interface PayloadResponse {
   uuid?: string
   nextUrl?: string
   qrUrl?: string
+  websocketUrl?: string
   error?: string
 }
 
 interface RequestBody {
   amount: number
-  currency?: string // e.g. "XAH", "PLX", "EVR", etc.
-  issuer?: string | null // null or undefined for native XAH
+  currency?: string
+  issuer?: string | null
   player?: string
   size?: number
   memo?: string
@@ -29,15 +30,11 @@ export async function POST(req: NextRequest) {
 
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
 
-    // Build gameUrl for redirect after successful payment
-    const gameUrl = `${baseUrl}/gamechessboard?player=${encodeURIComponent(player || "")}&fee=${amount}&size=${size}&currency=${currency}${issuer ? `&issuer=${issuer}` : ""}`
-
     const displayAmount = `${amount} ${currency}${issuer ? ` (issued by ${issuer.slice(0, 8)}...${issuer.slice(-4)})` : ""}`
 
     const fullMemo = memo || `Chess Tournament Entry - ${size === 1 ? "1v1" : `${size} Players`} - ${displayAmount}`
 
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      // Your existing Supabase edge function path – make sure it supports currency + issuer!
       const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-createPayload`
 
       const response = await fetch(edgeFunctionUrl, {
@@ -52,7 +49,7 @@ export async function POST(req: NextRequest) {
           currency,
           issuer,
           memo: fullMemo,
-          returnUrl: baseUrl,
+          returnUrl: `${baseUrl}/chess`, // Return to chess page, not game
         }),
       })
 
@@ -71,7 +68,7 @@ export async function POST(req: NextRequest) {
         uuid: data.uuid,
         nextUrl: data.nextUrl,
         qrUrl: data.qrUrl,
-        gameUrl,
+        websocketUrl: data.websocketUrl,
       })
     }
 
@@ -128,7 +125,7 @@ export async function POST(req: NextRequest) {
         submit: true,
         expire: 300,
         return_url: {
-          web: gameUrl,
+          web: `${baseUrl}/chess`, // Return to chess page after payment
         },
       },
       custom_meta: {
@@ -148,7 +145,7 @@ export async function POST(req: NextRequest) {
       uuid: response.uuid,
       nextUrl: response.next.always,
       qrUrl: response.refs?.qr_png,
-      gameUrl,
+      websocketUrl: response.refs?.websocket_status,
     })
   } catch (err) {
     console.error("[xBase] Payload creation error:", err)

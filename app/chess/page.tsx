@@ -9,14 +9,14 @@ type Theme = "light" | "middle" | "dark"
 
 type Asset = {
   currency: string
-  issuer: string | null // null for native XAH
+  issuer: string | null
   label: string
 }
 
 const assets: Asset[] = [
   { currency: "XAH", issuer: null, label: "XAH (Native)" },
   { currency: "PLX", issuer: "rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q", label: "PLX" },
-  { currency: "XRP", issuer: null, label: "XRP (IOU - trusted issuer required)" }, // Note: XRP is often issued IOU on Xahau, e.g., GateHub
+  { currency: "XRP", issuer: null, label: "XRP (IOU - trusted issuer required)" },
   { currency: "EVR", issuer: "rEvernodee8dJLaFsujS6q1EiXvZYmHXr8", label: "EVR" },
   { currency: "FUZZY", issuer: "rhCAT4hRdi2Y9puNdkpMzxrdKa5wkppR62", label: "FUZZY" },
   { currency: "RLUSD", issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", label: "RLUSD" },
@@ -57,7 +57,6 @@ export default function Chess() {
   }
 
   async function handleLogin() {
-    // ... (unchanged login logic)
     try {
       setLoadingLogin(true)
 
@@ -169,13 +168,13 @@ export default function Chess() {
 
       const data = await res.json()
 
-      if (!data.nextUrl || !data.gameUrl) {
+      if (!data.nextUrl || !data.websocketUrl || !data.uuid) {
         console.error("Missing links from payload:", data)
         alert("Payment prepared but missing redirect links. Try again.")
         return
       }
 
-      const { nextUrl, gameUrl } = data
+      const { nextUrl, websocketUrl, uuid } = data
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
@@ -189,28 +188,55 @@ export default function Chess() {
           return
         }
 
-        const checkClosed = setInterval(() => {
-          if (xamanWin.closed) {
-            clearInterval(checkClosed)
-            window.location.href = gameUrl
-          }
-        }, 1000)
+        // Listen for payment success via WebSocket
+        const ws = new WebSocket(websocketUrl)
+        
+        ws.onmessage = async (event) => {
+          const status = JSON.parse(event.data)
 
-        const visibilityHandler = () => {
-          if (!document.hidden) {
-            setTimeout(() => {
-              clearInterval(checkClosed)
-              window.location.href = gameUrl
-            }, 2000)
+          if (status.signed === true) {
+            ws.close()
+            
+            // Payment successful! Now join tournament
+            try {
+              const joinRes = await fetch("/api/tournaments/join", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  playerAddress: playerID,
+                  tournamentSize: selectedSize,
+                  entryFee: selectedFee,
+                  currency: selectedAsset.currency,
+                  issuer: selectedAsset.issuer || null
+                })
+              })
+
+              if (!joinRes.ok) {
+                throw new Error("Failed to join tournament")
+              }
+
+              const joinData = await joinRes.json()
+
+              if (joinData.success) {
+                // Redirect to waiting room
+                window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+              } else {
+                alert("Payment successful but failed to join tournament. Contact support.")
+              }
+            } catch (err) {
+              console.error("Tournament join error:", err)
+              alert("Payment successful but failed to join tournament. Contact support.")
+            }
+          } else if (status.signed === false || status.expired) {
+            alert(status.signed === false ? "Payment rejected." : "Payment expired.")
+            ws.close()
           }
         }
-        document.addEventListener("visibilitychange", visibilityHandler)
 
-        setTimeout(() => {
-          clearInterval(checkClosed)
-          document.removeEventListener("visibilitychange", visibilityHandler)
-          window.location.href = gameUrl
-        }, 30000)
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error)
+          ws.close()
+        }
       }
     } catch (err) {
       console.error("Payment error:", err)
@@ -395,7 +421,6 @@ export default function Chess() {
         </p>
 
         <div className="mt-6 flex items-center justify-center gap-10">
-          {/* Icons unchanged */}
           <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
             <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="3" y="6" width="18" height="13" rx="2" />
