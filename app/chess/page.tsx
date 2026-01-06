@@ -192,6 +192,8 @@ export default function Chess() {
 
       // FIX 3: Better mobile/desktop handling
       let xamanWin: Window | null = null
+      let popupCheckInterval: NodeJS.Timeout | null = null
+      let timeoutId: NodeJS.Timeout | null = null
 
       if (isMobile) {
         // Mobile: Store payment state before redirecting
@@ -213,6 +215,29 @@ export default function Chess() {
           setLoadingPay(false)
           return
         }
+
+        // FIX 3A: Monitor if user manually closes popup
+        popupCheckInterval = setInterval(() => {
+          if (xamanWin && xamanWin.closed) {
+            console.log("Popup was closed manually")
+            clearInterval(popupCheckInterval!)
+            if (timeoutId) clearTimeout(timeoutId)
+            ws.close()
+            setLoadingPay(false)
+          }
+        }, 500)
+
+        // FIX 3B: Auto-close popup after 5 minutes (payload expiry)
+        timeoutId = setTimeout(() => {
+          if (xamanWin && !xamanWin.closed) {
+            console.log("Popup timeout - auto closing")
+            xamanWin.close()
+          }
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          ws.close()
+          setLoadingPay(false)
+          alert("Payment request expired. Please try again.")
+        }, 5 * 60 * 1000) // 5 minutes
       }
 
       // Listen for payment success via WebSocket
@@ -223,6 +248,10 @@ export default function Chess() {
 
         if (status.signed === true) {
           ws.close()
+          
+          // Clean up timers
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          if (timeoutId) clearTimeout(timeoutId)
           
           // FIX 4: Close popup window on desktop
           if (xamanWin && !xamanWin.closed) {
@@ -258,12 +287,18 @@ export default function Chess() {
               window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
             } else {
               alert("Payment successful but failed to join tournament. Contact support.")
+              setLoadingPay(false)
             }
           } catch (err) {
             console.error("Tournament join error:", err)
             alert("Payment successful but failed to join tournament. Contact support.")
+            setLoadingPay(false)
           }
         } else if (status.signed === false || status.expired) {
+          // Clean up timers
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          if (timeoutId) clearTimeout(timeoutId)
+          
           // FIX 5: Close popup on rejection/expiry too
           if (xamanWin && !xamanWin.closed) {
             xamanWin.close()
@@ -276,11 +311,24 @@ export default function Chess() {
 
       ws.onerror = (error) => {
         console.error("WebSocket error:", error)
+        
+        // Clean up timers
+        if (popupCheckInterval) clearInterval(popupCheckInterval)
+        if (timeoutId) clearTimeout(timeoutId)
+        
         if (xamanWin && !xamanWin.closed) {
           xamanWin.close()
         }
         ws.close()
         setLoadingPay(false)
+      }
+
+      ws.onclose = () => {
+        console.log("WebSocket closed")
+        
+        // Clean up timers when WebSocket closes
+        if (popupCheckInterval) clearInterval(popupCheckInterval)
+        if (timeoutId) clearTimeout(timeoutId)
       }
     } catch (err) {
       console.error("Payment error:", err)
