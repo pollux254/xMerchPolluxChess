@@ -153,12 +153,16 @@ export default function Chess() {
       setLoadingPay(true)
       const memo = `Chess Tournament - ${selectedSize === 1 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} ${selectedAsset.currency}`
 
+      // Add return URL for mobile flow
+      const returnUrl = `${window.location.origin}/chess`
+
       const payloadBody: any = {
         amount: selectedFee,
         currency: selectedAsset.currency,
         memo,
         player: playerID,
         size: selectedSize,
+        returnUrl, // Add this so Xaman knows where to return
       }
 
       if (selectedAsset.issuer) {
@@ -345,7 +349,11 @@ export default function Chess() {
       
       if (waitingForPayment && tournamentConfig) {
         // User returned from mobile payment
+        console.log("Detected return from mobile payment")
         setLoadingPay(true)
+        
+        // Small delay to ensure page is fully loaded
+        await new Promise(resolve => setTimeout(resolve, 1000))
         
         try {
           const config = JSON.parse(tournamentConfig)
@@ -357,12 +365,17 @@ export default function Chess() {
             body: JSON.stringify({ uuid: waitingForPayment }),
           })
 
-          if (!payloadRes.ok) throw new Error("Failed to check payment status")
+          if (!payloadRes.ok) {
+            throw new Error("Failed to check payment status")
+          }
           
           const payloadData = await payloadRes.json()
+          console.log("Payment status:", payloadData)
           
           if (payloadData.meta?.signed === true) {
             // Payment was successful, join tournament
+            console.log("Payment successful, joining tournament...")
+            
             const joinRes = await fetch("/api/tournaments/join", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -370,36 +383,54 @@ export default function Chess() {
             })
 
             if (!joinRes.ok) {
+              const errorText = await joinRes.text()
+              console.error("Tournament join error:", errorText)
               throw new Error("Failed to join tournament")
             }
 
             const joinData = await joinRes.json()
+            console.log("Tournament join response:", joinData)
 
             if (joinData.success) {
               // Clean up
               sessionStorage.removeItem("waitingForPayment")
               sessionStorage.removeItem("tournamentConfig")
               
+              // Show success message briefly
+              alert("Payment successful! Joining tournament...")
+              
               // Redirect to waiting room
               window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+            } else {
+              throw new Error(joinData.error || "Failed to join tournament")
             }
-          } else {
-            // Payment not completed
+          } else if (payloadData.meta?.signed === false) {
+            // Payment was rejected
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
-            alert("Payment was not completed.")
+            alert("Payment was rejected.")
+            setLoadingPay(false)
+          } else {
+            // Payment still pending or expired
+            console.log("Payment not completed yet")
+            sessionStorage.removeItem("waitingForPayment")
+            sessionStorage.removeItem("tournamentConfig")
+            alert("Payment was not completed. Please try again.")
+            setLoadingPay(false)
           }
         } catch (err) {
           console.error("Mobile return error:", err)
-          alert("Failed to process payment. Please try again.")
-        } finally {
+          sessionStorage.removeItem("waitingForPayment")
+          sessionStorage.removeItem("tournamentConfig")
+          alert(`Failed to process payment: ${err instanceof Error ? err.message : 'Unknown error'}`)
           setLoadingPay(false)
         }
       }
     }
 
+    // Only run on mount
     checkMobileReturn()
-  }, [])
+  }, []) // Empty dependency array - run once on mount
 
   const handleFreePlay = () => {
     if (!playerID) {
