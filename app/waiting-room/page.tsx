@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { createClient } from "@supabase/supabase-js"
 import { motion } from "framer-motion"
@@ -8,7 +8,7 @@ import { motion } from "framer-motion"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-export default function WaitingRoom() {
+function WaitingRoomContent() {
   const searchParams = useSearchParams()
   const tournamentId = searchParams.get("tournamentId")
   
@@ -229,5 +229,22 @@ export default function WaitingRoom() {
         </div>
       </motion.div>
     </div>
+  )
+}
+
+export default function WaitingRoom() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900/30 to-purple-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-32 h-32 border-8 border-purple-500/60 rounded-full flex items-center justify-center mx-auto mb-10 animate-spin">
+            <span className="text-5xl">♟️</span>
+          </div>
+          <p className="text-4xl font-bold text-white">Loading tournament...</p>
+        </div>
+      </div>
+    }>
+      <WaitingRoomContent />
+    </Suspense>
   )
 }
