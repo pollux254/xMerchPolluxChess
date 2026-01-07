@@ -39,18 +39,23 @@ export async function POST(request: NextRequest) {
     // Check if player is already in any active tournament
     const { data: existingEntries } = await supabase
       .from('tournament_players')
-      .select('tournament_id, tournaments!inner(status)')
+      .select('tournament_id, tournaments!inner(id, status)')
       .eq('player_address', playerAddress)
       .in('tournaments.status', ['waiting', 'in_progress', 'in-progress'])
 
     if (existingEntries && existingEntries.length > 0) {
       const existing = existingEntries[0]
+      // Handle array vs object for tournaments
+      const tournament = Array.isArray(existing.tournaments)
+        ? existing.tournaments[0]
+        : existing.tournaments
+
       return NextResponse.json(
         {
           success: false,
           error: 'Already in active tournament',
           tournamentId: existing.tournament_id,
-          status: existing.tournaments.status,
+          status: tournament?.status || 'waiting',
         },
         { status: 409 }
       )

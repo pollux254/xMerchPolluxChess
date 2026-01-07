@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Correct query: join tournament_players with tournaments
+    // Query with proper type handling
     const { data, error } = await supabase
       .from("tournament_players")
       .select(`
@@ -40,14 +40,19 @@ export async function GET(req: NextRequest) {
 
     if (data && data.length > 0) {
       const entry = data[0]
+      
+      // Handle both possible shapes: tournaments as object or array
+      const tournament = Array.isArray(entry.tournaments) 
+        ? entry.tournaments[0] 
+        : entry.tournaments
+
       return NextResponse.json({
         inTournament: true,
         tournamentId: entry.tournament_id,
-        status: entry.tournaments.status,
+        status: tournament?.status || "waiting",
       })
     }
 
-    // No active tournament found
     return NextResponse.json({ inTournament: false })
   } catch (err) {
     console.error("[Check Player] Unexpected error:", err)
