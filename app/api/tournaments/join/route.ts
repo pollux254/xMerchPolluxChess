@@ -39,6 +39,44 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+    // ✨ NEW: Step 0 - Check if player is already in ANY active tournament
+    console.log('[Tournament Join] Checking if player is already in a tournament...')
+    const { data: playerInTournaments, error: playerCheckError } = await supabase
+      .from('tournament_players')
+      .select(`
+        tournament_id,
+        tournaments!inner (
+          id,
+          status
+        )
+      `)
+      .eq('player_address', playerAddress)
+      .in('tournaments.status', ['waiting', 'in_progress'])
+
+    if (playerCheckError) {
+      console.error('[Tournament Join] Error checking player tournaments:', playerCheckError)
+      // Don't fail here, just log and continue
+    }
+
+    if (playerInTournaments && playerInTournaments.length > 0) {
+      const existingTournamentId = playerInTournaments[0].tournament_id
+      const existingStatus = (playerInTournaments[0] as any).tournaments?.status
+      
+      console.log(`[Tournament Join] ❌ Player already in tournament ${existingTournamentId} with status ${existingStatus}`)
+      
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Player already in an active tournament',
+          tournamentId: existingTournamentId,
+          status: existingStatus
+        },
+        { status: 409 } // 409 Conflict
+      )
+    }
+
+    console.log('[Tournament Join] ✅ Player not in any active tournament')
+
     // Step 1: Find existing waiting tournaments (simplified query)
     console.log('[Tournament Join] Searching for existing tournaments...')
     const { data: existingTournaments, error: findError } = await supabase
@@ -115,8 +153,8 @@ export async function POST(request: NextRequest) {
       console.log('[Tournament Join] Created new tournament:', tournamentId)
     }
 
-    // Step 3: Check if player already in this tournament
-    console.log('[Tournament Join] Checking if player already joined...')
+    // Step 3: Check if player already in this tournament (shouldn't happen after Step 0, but just in case)
+    console.log('[Tournament Join] Checking if player already joined this specific tournament...')
     const { data: existingPlayer, error: checkError } = await supabase
       .from('tournament_players')
       .select('id')
@@ -129,7 +167,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (existingPlayer) {
-      console.log('[Tournament Join] Player already in tournament')
+      console.log('[Tournament Join] Player already in this tournament')
       return NextResponse.json({
         success: true,
         tournamentId,

@@ -1,14 +1,8 @@
-// Supabase Edge Function for creating Xahau payment payloads (CHESS BULLETPROOF)
+// Supabase Edge Function for creating Xahau payment payloads
 // Deploy: supabase functions deploy xaman-createPayload
-// Secrets: XUMM_API_KEY, XUMM_API_SECRET, XAH_DESTINATION, SB_URL
+// Secrets: XUMM_API_KEY, XUMM_API_SECRET, XAH_DESTINATION
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-
-declare const Deno: {
-  env: {
-    get(key: string): string | undefined
-  }
-}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,10 +11,12 @@ const corsHeaders = {
 
 interface PayloadRequest {
   amount: number
+  currency?: string
+  issuer?: string | null
   memo?: string
   returnUrl?: string
-  player?: string  // NEW: Player wallet address
-  size?: number    // NEW: Tournament size (1,4,8,16)
+  player?: string
+  size?: number
 }
 
 function stringToHex(str: string): string {
@@ -62,7 +58,7 @@ serve(async (req: Request) => {
     }
 
     const body: PayloadRequest = await req.json()
-    const { amount, memo, returnUrl, player, size } = body
+    const { amount, currency = "XAH", issuer, memo, returnUrl, player, size } = body
 
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ ok: false, error: "Invalid amount" }), {
@@ -71,17 +67,23 @@ serve(async (req: Request) => {
       })
     }
 
-    // BULLETPROOF GAME REDIRECT URL
-    const baseDomain = SUPABASE_URL ? SUPABASE_URL.replace('supabase.co', 'yourdomain.com') : 'https://yourdomain.com'
-    const gameUrl = `${baseDomain}/chesschessboard?player=${player}&fee=${amount}&size=${size}`
-    
-    console.log("Chess payment:", { player, amount, size, gameUrl })
+    console.log("Payment request:", { player, amount, size, currency, returnUrl })
 
     const txjson: Record<string, unknown> = {
       TransactionType: "Payment",
       Destination: DESTINATION,
-      Amount: xahToDrops(amount),
       NetworkID: 21337,
+    }
+
+    // Handle native XAH vs issued currencies
+    if (currency === "XAH" || !issuer) {
+      txjson.Amount = xahToDrops(amount)
+    } else {
+      txjson.Amount = {
+        value: String(amount),
+        currency: currency,
+        issuer: issuer,
+      }
     }
 
     if (memo && memo.trim()) {
@@ -97,16 +99,18 @@ serve(async (req: Request) => {
 
     const payloadOptions: Record<string, unknown> = {
       submit: true,
-      expire: 15,  // Increased to 15min for mobile users
+      expire: 300, // 5 minutes
     }
 
-    // BULLETPROOF RETURN URL - Always goes to GAME with params
-    payloadOptions.return_url = { 
-      web: gameUrl,
-      app: gameUrl,  // Also for Xaman app
-      xapp: gameUrl  // xApp scheme
+    // USE THE RETURN URL FROM FRONTEND (not hardcoded!)
+    if (returnUrl) {
+      payloadOptions.return_url = {
+        web: returnUrl,
+      }
+      console.log("Using returnUrl:", returnUrl)
     }
 
+    // Add webhook if Supabase URL is configured
     if (SUPABASE_URL) {
       payloadOptions.webhook = `${SUPABASE_URL}/functions/v1/xaman-webhook`
     }
@@ -115,10 +119,8 @@ serve(async (req: Request) => {
       txjson,
       options: payloadOptions,
       custom_meta: {
-        instruction: `Pay ${amount} XAH → PolluxChess Game Room (${size === 1 ? '1vs1' : `${size} Players`})`,
-        identifier: `polluxchess-${player?.slice(-6)}-${Date.now()}`,
-        ...(player && { player }),  // Embed player ID in meta
-        ...(size && { size }),      // Embed tournament size
+        instruction: memo || `Pay ${amount} ${currency} → PolluxChess`,
+        identifier: `polluxchess-${Date.now()}`,
       },
     }
 
@@ -142,7 +144,7 @@ serve(async (req: Request) => {
     }
 
     const data = await response.json()
-    console.log("Chess payload created:", data.uuid, gameUrl)
+    console.log("Payload created:", data.uuid)
 
     return new Response(
       JSON.stringify({
@@ -151,7 +153,6 @@ serve(async (req: Request) => {
         nextUrl: data.next?.always,
         qrUrl: data.refs?.qr_png,
         websocketUrl: data.refs?.websocket_status,
-        gameUrl,  // Frontend fallback
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     )

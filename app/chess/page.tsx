@@ -46,8 +46,48 @@ export default function Chess() {
     }
 
     const savedID = localStorage.getItem("playerID")
-    if (savedID) setPlayerID(savedID)
+    if (savedID) {
+      setPlayerID(savedID)
+      
+      // Check if player is already in a tournament
+      checkExistingTournament(savedID)
+    }
   }, [])
+
+  // NEW: Check if player is already in a tournament
+  async function checkExistingTournament(playerAddress: string) {
+    try {
+      const res = await fetch(`/api/tournaments/check-player?address=${playerAddress}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.inTournament && data.tournamentId) {
+          console.log("Player already in tournament:", data.tournamentId)
+          
+          // Check tournament status
+          if (data.status === "waiting") {
+            // Redirect back to waiting room
+            const shouldRejoin = confirm(
+              "You're already in a waiting room! Would you like to rejoin?"
+            )
+            if (shouldRejoin) {
+              window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
+            }
+          } else if (data.status === "in-progress") {
+            // Redirect back to active game
+            const shouldRejoin = confirm(
+              "You have an active game! Would you like to rejoin?"
+            )
+            if (shouldRejoin) {
+              window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.log("No existing tournament check available:", err)
+      // Fail silently - feature not critical
+    }
+  }
 
   const setThemeValue = (newTheme: Theme) => {
     setTheme(newTheme)
@@ -155,6 +195,8 @@ export default function Chess() {
 
       // Add return URL for mobile flow
       const returnUrl = `${window.location.origin}/chess`
+      
+      console.log("Creating payment with returnUrl:", returnUrl)
 
       const payloadBody: any = {
         amount: selectedFee,
@@ -168,6 +210,8 @@ export default function Chess() {
       if (selectedAsset.issuer) {
         payloadBody.issuer = selectedAsset.issuer
       }
+      
+      console.log("Payment payload body:", payloadBody)
 
       const res = await fetch("/api/auth/xaman/create-payload/xahau-payload", {
         method: "POST",
@@ -183,6 +227,8 @@ export default function Chess() {
       }
 
       const data = await res.json()
+      
+      console.log("Payment payload response:", data)
 
       if (!data.nextUrl || !data.websocketUrl || !data.uuid) {
         console.error("Missing links from payload:", data)
@@ -202,6 +248,8 @@ export default function Chess() {
 
       // For mobile phones (not tablets), do full redirect
       if (isMobile && !isTablet) {
+        console.log("Mobile detected - storing payment state and redirecting")
+        
         // Mobile: Store payment state before redirecting
         sessionStorage.setItem("waitingForPayment", uuid)
         sessionStorage.setItem("tournamentConfig", JSON.stringify({
@@ -212,7 +260,13 @@ export default function Chess() {
           issuer: selectedAsset.issuer || null
         }))
         
+        console.log("Stored in sessionStorage:", {
+          uuid,
+          config: sessionStorage.getItem("tournamentConfig")
+        })
+        
         // Full page redirect on mobile - no popup
+        console.log("Redirecting to:", nextUrl)
         window.location.href = nextUrl
         return // Exit function - no WebSocket needed since we're leaving the page
       } else {
@@ -282,6 +336,28 @@ export default function Chess() {
             })
 
             if (!joinRes.ok) {
+              const errorText = await joinRes.text()
+              console.error("Tournament join error:", errorText)
+              
+              // Check if it's a "already in tournament" error
+              if (errorText.includes("already") || errorText.includes("duplicate")) {
+                alert("You're already in a tournament! Redirecting to waiting room...")
+                
+                // Try to get tournament ID from error or fetch it
+                try {
+                  const checkRes = await fetch(`/api/tournaments/check-player?address=${playerID}`)
+                  if (checkRes.ok) {
+                    const checkData = await checkRes.json()
+                    if (checkData.tournamentId) {
+                      window.location.href = `/waiting-room?tournamentId=${checkData.tournamentId}`
+                      return
+                    }
+                  }
+                } catch (e) {
+                  console.error("Failed to get existing tournament:", e)
+                }
+              }
+              
               throw new Error("Failed to join tournament")
             }
 
@@ -348,14 +424,32 @@ export default function Chess() {
 
   // FIX 6: Handle return from mobile Xaman
   useEffect(() => {
+    console.log("Chess page loaded - checking for mobile return...")
+    
     const checkMobileReturn = async () => {
+      // Check if we just returned from Xaman (URL might have xumm parameters)
+      const urlParams = new URLSearchParams(window.location.search)
+      const hasXamanParams = urlParams.has('xumm') || window.location.href.includes('xumm')
+      
       const waitingForPayment = sessionStorage.getItem("waitingForPayment")
       const tournamentConfig = sessionStorage.getItem("tournamentConfig")
       
+      console.log("Session storage check:", { 
+        waitingForPayment, 
+        tournamentConfig,
+        hasXamanParams,
+        currentUrl: window.location.href 
+      })
+      
       if (waitingForPayment && tournamentConfig) {
         // User returned from mobile payment
-        console.log("Detected return from mobile payment")
+        console.log("✅ Detected return from mobile payment")
         setLoadingPay(true)
+        
+        // Clean URL by removing any Xaman parameters
+        if (hasXamanParams) {
+          window.history.replaceState({}, '', '/chess')
+        }
         
         // Small delay to ensure page is fully loaded
         await new Promise(resolve => setTimeout(resolve, 1000))
@@ -390,6 +484,27 @@ export default function Chess() {
             if (!joinRes.ok) {
               const errorText = await joinRes.text()
               console.error("Tournament join error:", errorText)
+              
+              // Check if player is already in tournament
+              if (errorText.includes("already") || errorText.includes("duplicate")) {
+                alert("You're already in a tournament! Redirecting...")
+                
+                try {
+                  const checkRes = await fetch(`/api/tournaments/check-player?address=${config.playerAddress}`)
+                  if (checkRes.ok) {
+                    const checkData = await checkRes.json()
+                    if (checkData.tournamentId) {
+                      sessionStorage.removeItem("waitingForPayment")
+                      sessionStorage.removeItem("tournamentConfig")
+                      window.location.href = `/waiting-room?tournamentId=${checkData.tournamentId}`
+                      return
+                    }
+                  }
+                } catch (e) {
+                  console.error("Failed to get existing tournament:", e)
+                }
+              }
+              
               throw new Error("Failed to join tournament")
             }
 
