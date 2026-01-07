@@ -1,39 +1,23 @@
-// Supabase Edge Function for creating Xahau payment payloads
-// Deploy: supabase functions deploy xaman-createPayload
-// Secrets: XUMM_API_KEY, XUMM_API_SECRET, XAH_DESTINATION
+// Supabase Edge Function for creating Xahau SignIn payloads
+// Deploy: supabase functions deploy xaman-signinPayload
+// Secrets: XUMM_API_KEY, XUMM_API_SECRET
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-declare const Deno: {
-  env: {
-    get(key: string): string | undefined
-  }
-}
+// Remove the custom Deno declaration - it's already available in Deno runtime
+// declare const Deno: {
+//   env: {
+//     get(key: string): string | undefined
+//   }
+// }
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
-interface PayloadRequest {
-  amount: number
-  currency?: string
-  issuer?: string | null
-  memo?: string
+interface SignInRequest {
   returnUrl?: string
-  player?: string
-  size?: number
-}
-
-function stringToHex(str: string): string {
-  return Array.from(new TextEncoder().encode(str))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .toUpperCase()
-}
-
-function xahToDrops(xah: number): string {
-  return Math.floor(xah * 1_000_000).toString()
 }
 
 serve(async (req: Request) => {
@@ -44,83 +28,41 @@ serve(async (req: Request) => {
   try {
     const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY")
     const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET")
-    const DESTINATION = Deno.env.get("XAH_DESTINATION")
 
     if (!XUMM_API_KEY || !XUMM_API_SECRET) {
       console.error("Missing XUMM_API_KEY or XUMM_API_SECRET")
       return new Response(
-        JSON.stringify({ ok: false, error: "Server config error: Missing Xaman credentials" }),
+        JSON.stringify({ ok: false, error: "Server configuration error: Missing Xaman credentials" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       )
     }
 
-    if (!DESTINATION) {
-      console.error("Missing XAH_DESTINATION")
-      return new Response(
-        JSON.stringify({ ok: false, error: "Server config error: Missing destination" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      )
-    }
+    const body: SignInRequest = await req.json()
+    const { returnUrl } = body
 
-    const body: PayloadRequest = await req.json()
-    const { amount, currency = "XAH", issuer, memo, returnUrl } = body
-
-    if (!amount || amount <= 0) {
-      return new Response(JSON.stringify({ ok: false, error: "Invalid amount" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
-    }
-
-    console.log("Payment request:", { amount, currency, issuer, returnUrl })
+    console.log("SignIn request:", { returnUrl })
 
     const txjson: Record<string, unknown> = {
-      TransactionType: "Payment",
-      Destination: DESTINATION,
+      TransactionType: "SignIn",
       NetworkID: 21337,
     }
 
-    // Handle native XAH vs issued currencies
-    if (currency === "XAH" || !issuer) {
-      txjson.Amount = xahToDrops(amount)
-    } else {
-      txjson.Amount = {
-        value: amount.toString(),
-        currency: currency,
-        issuer: issuer,
-      }
-    }
-
-    if (memo && memo.trim()) {
-      txjson.Memos = [
-        {
-          Memo: {
-            MemoType: stringToHex("text/plain"),
-            MemoData: stringToHex(memo.trim()),
-          },
-        },
-      ]
-    }
-
     const payloadOptions: Record<string, unknown> = {
-      submit: true,
+      submit: false,
       expire: 300,
     }
 
-    // Use returnUrl from request (sent by Next.js API)
-    // DO NOT redirect - let WebSocket handle it
+    // Only set return URL if provided
     if (returnUrl) {
-      payloadOptions.return_url = {
-        web: returnUrl,
-      }
+      payloadOptions.return_url = { web: returnUrl }
     }
 
     const payload = {
       txjson,
       options: payloadOptions,
       custom_meta: {
-        instruction: memo || `Pay ${amount} ${currency} → PolluxChess`,
-        identifier: `polluxchess-${Date.now()}`,
+        instruction: "Sign in to PolluxChess",
+        identifier: `polluxchess-signin-${Date.now()}`,
       },
     }
 
@@ -137,14 +79,14 @@ serve(async (req: Request) => {
     if (!response.ok) {
       const errorText = await response.text()
       console.error("Xaman API error:", response.status, errorText)
-      return new Response(JSON.stringify({ ok: false, error: `Xaman API: ${response.status}` }), {
+      return new Response(JSON.stringify({ ok: false, error: `Xaman API error: ${response.status}` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
     const data = await response.json()
-    console.log("Payment payload created:", data.uuid)
+    console.log("SignIn payload created:", data.uuid)
 
     return new Response(
       JSON.stringify({
@@ -159,7 +101,7 @@ serve(async (req: Request) => {
   } catch (error) {
     console.error("Edge function error:", error)
     return new Response(
-      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Internal error" }),
+      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     )
   }
