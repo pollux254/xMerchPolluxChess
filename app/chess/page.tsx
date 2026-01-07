@@ -53,10 +53,35 @@ export default function Chess() {
     if (savedID) {
       setPlayerID(savedID)
       
-      // Check if player is already in a tournament
-      checkExistingTournament(savedID)
+      // ✨ NEW: Force cleanup any stuck tournament entries first
+      cleanupPlayerTournaments(savedID).then(() => {
+        // Then check if player is in a tournament
+        checkExistingTournament(savedID)
+      })
     }
   }, [])
+
+  // NEW: Force cleanup player from stuck tournaments
+  async function cleanupPlayerTournaments(playerAddress: string) {
+    try {
+      console.log("🧹 Cleaning up any stuck tournament entries...")
+      const res = await fetch("/api/tournaments/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerAddress })
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        if (data.removed > 0) {
+          console.log(`🧹 Cleaned up ${data.removed} stuck tournament(s)`)
+        }
+      }
+    } catch (err) {
+      console.log("Cleanup not available:", err)
+      // Non-critical, continue
+    }
+  }
 
   // NEW: Check if player is already in a tournament
   async function checkExistingTournament(playerAddress: string) {
@@ -257,8 +282,37 @@ export default function Chess() {
   }
 
   const handleDisconnect = async () => {
-    // First, check if player is in an active game
-    if (playerID && existingTournament?.status === "in_progress") {
+    if (!playerID) {
+      // Already disconnected
+      localStorage.removeItem("playerID")
+      sessionStorage.clear()
+      window.location.reload()
+      return
+    }
+
+    // First, check if player is in ANY tournament (waiting or active)
+    let playerTournament = existingTournament
+
+    // If we don't have it in state, check the API
+    if (!playerTournament) {
+      try {
+        const checkRes = await fetch(`/api/tournaments/check-player?address=${playerID}`)
+        if (checkRes.ok) {
+          const checkData = await checkRes.json()
+          if (checkData.inTournament) {
+            playerTournament = {
+              id: checkData.tournamentId,
+              status: checkData.status
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check tournament status:", err)
+      }
+    }
+
+    // If in active game, warn about forfeit
+    if (playerTournament?.status === "in_progress" || playerTournament?.status === "in-progress") {
       const confirmLeave = confirm(
         "⚠️ You're in an active game! Logging out now will FORFEIT the match (you lose).\n\nAre you sure you want to logout and forfeit?"
       )
@@ -273,7 +327,7 @@ export default function Chess() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             playerAddress: playerID,
-            tournamentId: existingTournament.id,
+            tournamentId: playerTournament.id,
             reason: "Player logged out during game"
           })
         })
@@ -289,9 +343,8 @@ export default function Chess() {
         alert("Warning: Failed to register forfeit. Please contact support.")
       }
     }
-
-    // Check if in waiting room
-    if (playerID && existingTournament?.status === "waiting") {
+    // If in waiting room, remove from tournament
+    else if (playerTournament?.status === "waiting") {
       const confirmLeave = confirm(
         "You're in a waiting room. Logging out will remove you from the tournament.\n\nContinue logout?"
       )
@@ -301,26 +354,36 @@ export default function Chess() {
       
       // Remove player from tournament
       try {
-        await fetch("/api/tournaments/leave", {
+        const leaveRes = await fetch("/api/tournaments/leave", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             playerAddress: playerID,
-            tournamentId: existingTournament.id
+            tournamentId: playerTournament.id
           })
         })
+        
+        if (!leaveRes.ok) {
+          console.error("Failed to leave tournament")
+          // Continue with logout anyway
+        } else {
+          console.log("✅ Successfully left tournament")
+        }
       } catch (err) {
         console.error("Failed to leave tournament:", err)
+        // Continue with logout anyway
       }
     }
     
-    // Clear all state
+    // Clear all frontend state
     setPlayerID(null)
     setExistingTournament(null)
     
     // ✨ Broadcast logout to all tabs/pages
     localStorage.removeItem("playerID") // This triggers 'storage' event in other tabs!
     sessionStorage.clear() // Clear all session data
+    
+    console.log("🚪 Logout complete - all state cleared")
     
     alert("Wallet disconnected successfully!")
     
