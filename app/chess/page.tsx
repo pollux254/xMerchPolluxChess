@@ -317,7 +317,9 @@ export default function Chess() {
     // Clear all state
     setPlayerID(null)
     setExistingTournament(null)
-    localStorage.removeItem("playerID")
+    
+    // ✨ Broadcast logout to all tabs/pages
+    localStorage.removeItem("playerID") // This triggers 'storage' event in other tabs!
     sessionStorage.clear() // Clear all session data
     
     alert("Wallet disconnected successfully!")
@@ -568,6 +570,8 @@ export default function Chess() {
   // FIX 6: Handle return from mobile Xaman
   useEffect(() => {
     console.log("Chess page loaded - checking for mobile return...")
+    console.log("Current URL:", window.location.href)
+    console.log("PlayerID:", playerID)
     
     const checkMobileReturn = async () => {
       // Check if we just returned from Xaman (URL might have xumm parameters)
@@ -595,12 +599,14 @@ export default function Chess() {
         }
         
         // Small delay to ensure page is fully loaded
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise(resolve => setTimeout(resolve, 2000))
         
         try {
           const config = JSON.parse(tournamentConfig)
+          console.log("Tournament config:", config)
           
           // Check payment status
+          console.log("Checking payment status for UUID:", waitingForPayment)
           const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -608,6 +614,8 @@ export default function Chess() {
           })
 
           if (!payloadRes.ok) {
+            const errorText = await payloadRes.text()
+            console.error("Payment check failed:", errorText)
             throw new Error("Failed to check payment status")
           }
           
@@ -624,42 +632,43 @@ export default function Chess() {
               body: JSON.stringify(config)
             })
 
+            const joinText = await joinRes.text()
+            console.log("Join response status:", joinRes.status)
+            console.log("Join response text:", joinText)
+
             if (!joinRes.ok) {
-              const errorText = await joinRes.text()
-              console.error("Tournament join error:", errorText)
+              console.error("Tournament join error:", joinText)
               
-              // Check if player is already in tournament
-              if (errorText.includes("already") || errorText.includes("duplicate")) {
-                alert("You're already in a tournament! Redirecting...")
-                
-                try {
-                  const checkRes = await fetch(`/api/tournaments/check-player?address=${config.playerAddress}`)
-                  if (checkRes.ok) {
-                    const checkData = await checkRes.json()
-                    if (checkData.tournamentId) {
-                      sessionStorage.removeItem("waitingForPayment")
-                      sessionStorage.removeItem("tournamentConfig")
-                      window.location.href = `/waiting-room?tournamentId=${checkData.tournamentId}`
-                      return
-                    }
-                  }
-                } catch (e) {
-                  console.error("Failed to get existing tournament:", e)
-                }
+              // Try to parse as JSON
+              let joinData
+              try {
+                joinData = JSON.parse(joinText)
+              } catch (e) {
+                throw new Error(`Failed to join tournament: ${joinText}`)
               }
               
-              throw new Error("Failed to join tournament")
+              // Check if player is already in tournament
+              if (joinData.tournamentId && (joinText.includes("already") || joinText.includes("duplicate"))) {
+                console.log("Player already in tournament, redirecting...")
+                sessionStorage.removeItem("waitingForPayment")
+                sessionStorage.removeItem("tournamentConfig")
+                window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+                return
+              }
+              
+              throw new Error(joinData.error || "Failed to join tournament")
             }
 
-            const joinData = await joinRes.json()
+            const joinData = JSON.parse(joinText)
             console.log("Tournament join response:", joinData)
 
-            if (joinData.success) {
+            if (joinData.success && joinData.tournamentId) {
               // Clean up
               sessionStorage.removeItem("waitingForPayment")
               sessionStorage.removeItem("tournamentConfig")
               
               // Show success message briefly
+              console.log("Redirecting to waiting room:", joinData.tournamentId)
               alert("Payment successful! Joining tournament...")
               
               // Redirect to waiting room
@@ -669,13 +678,14 @@ export default function Chess() {
             }
           } else if (payloadData.meta?.signed === false) {
             // Payment was rejected
+            console.log("Payment was rejected")
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
             alert("Payment was rejected.")
             setLoadingPay(false)
           } else {
             // Payment still pending or expired
-            console.log("Payment not completed yet")
+            console.log("Payment not completed yet. Status:", payloadData)
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
             alert("Payment was not completed. Please try again.")
@@ -685,9 +695,11 @@ export default function Chess() {
           console.error("Mobile return error:", err)
           sessionStorage.removeItem("waitingForPayment")
           sessionStorage.removeItem("tournamentConfig")
-          alert(`Failed to process payment: ${err instanceof Error ? err.message : 'Unknown error'}`)
+          alert(`Failed to process payment: ${err instanceof Error ? err.message : 'Unknown error'}. Please contact support.`)
           setLoadingPay(false)
         }
+      } else {
+        console.log("No mobile payment detected")
       }
     }
 

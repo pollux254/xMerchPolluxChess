@@ -23,6 +23,34 @@ function WaitingRoomContent() {
       return
     }
 
+    // ✨ NEW: Listen for logout events from other tabs/pages
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'playerID' && e.newValue === null) {
+        // Player logged out on another page
+        console.log("🚪 Player logged out detected - leaving waiting room")
+        alert("You've been logged out. Returning to lobby...")
+        window.location.href = "/chess"
+      }
+    }
+
+    // ✨ NEW: Check if player is still logged in
+    const checkPlayerStatus = () => {
+      const playerID = localStorage.getItem('playerID')
+      if (!playerID) {
+        console.log("🚪 No player ID found - redirecting to lobby")
+        window.location.href = "/chess"
+      }
+    }
+
+    // Check immediately
+    checkPlayerStatus()
+
+    // Listen for storage events (from other tabs)
+    window.addEventListener('storage', handleStorageChange)
+
+    // Also check periodically (in case same tab)
+    const statusCheckInterval = setInterval(checkPlayerStatus, 2000)
+
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     // Fetch initial tournament data
@@ -108,6 +136,8 @@ function WaitingRoomContent() {
       .subscribe()
 
     return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      clearInterval(statusCheckInterval)
       supabase.removeChannel(tournamentsChannel)
       supabase.removeChannel(playersChannel)
     }
@@ -135,8 +165,9 @@ function WaitingRoomContent() {
   }
 
   const playerCount = players.length
-  const spotsRemaining = tournament.tournament_size - playerCount
-  const isFull = playerCount >= tournament.tournament_size
+  const tournamentSize = tournament.tournament_size
+  const spotsRemaining = tournamentSize - playerCount
+  const isFull = playerCount >= tournamentSize
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex flex-col items-center justify-center px-6 py-12">
@@ -171,8 +202,9 @@ function WaitingRoomContent() {
           </h2>
           
           <div className="text-center mb-8">
+            {/* ✅ FIXED: Now shows correct total */}
             <p className="text-7xl font-black text-cyan-400">
-              {playerCount} / {tournament.tournament_size}
+              {playerCount} / {tournamentSize}
             </p>
             <p className="text-2xl text-gray-300 mt-2">
               {isFull ? "All players ready!" : `${spotsRemaining} spot${spotsRemaining !== 1 ? 's' : ''} remaining`}
