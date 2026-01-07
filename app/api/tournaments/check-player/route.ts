@@ -10,62 +10,47 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing player address" }, { status: 400 })
     }
 
-    // Initialize Supabase client
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({
-        inTournament: false,
-        message: "Tournament tracking not available",
-      })
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.warn("Supabase config missing for check-player")
+      return NextResponse.json({ inTournament: false })
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Check if player is in any active tournament
-    // This assumes you have a tournaments table with player data
-    const { data: activeTournaments, error } = await supabase
-      .from("tournaments")
-      .select("id, status, players")
-      .or("status.eq.waiting,status.eq.in-progress")
-      .order("created_at", { ascending: false })
+    // Correct query: join tournament_players with tournaments
+    const { data, error } = await supabase
+      .from("tournament_players")
+      .select(`
+        tournament_id,
+        tournaments!inner (
+          id,
+          status
+        )
+      `)
+      .eq("player_address", playerAddress)
+      .in("tournaments.status", ["waiting", "in_progress", "in-progress"])
 
     if (error) {
-      console.error("Supabase error:", error)
-      return NextResponse.json({
-        inTournament: false,
-        message: "Failed to check tournaments",
-      })
+      console.error("[Check Player] Supabase error:", error)
+      return NextResponse.json({ inTournament: false })
     }
 
-    // Find if player is in any of these tournaments
-    const playerTournament = activeTournaments?.find((tournament) => {
-      // Check if players array includes this address
-      if (Array.isArray(tournament.players)) {
-        return tournament.players.some((p: any) => 
-          p === playerAddress || p.address === playerAddress
-        )
-      }
-      return false
-    })
-
-    if (playerTournament) {
+    if (data && data.length > 0) {
+      const entry = data[0]
       return NextResponse.json({
         inTournament: true,
-        tournamentId: playerTournament.id,
-        status: playerTournament.status,
+        tournamentId: entry.tournament_id,
+        status: entry.tournaments.status,
       })
     }
 
-    return NextResponse.json({
-      inTournament: false,
-    })
+    // No active tournament found
+    return NextResponse.json({ inTournament: false })
   } catch (err) {
-    console.error("Check player error:", err)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    console.error("[Check Player] Unexpected error:", err)
+    return NextResponse.json({ inTournament: false })
   }
 }

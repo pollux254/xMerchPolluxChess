@@ -7,30 +7,27 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export async function POST(request: NextRequest) {
   try {
     console.log('[Tournament Join] Starting...')
-    
-    // Check environment variables
+
     if (!supabaseUrl || !supabaseServiceKey) {
       console.error('[Tournament Join] Missing Supabase credentials')
       return NextResponse.json(
-        { error: 'Server configuration error - missing Supabase credentials' },
+        { error: 'Server configuration error' },
         { status: 500 }
       )
     }
 
     const body = await request.json()
     console.log('[Tournament Join] Request body:', body)
-    
-    const { 
-      playerAddress, 
-      tournamentSize, 
-      entryFee, 
-      currency, 
-      issuer 
+
+    const {
+      playerAddress,
+      tournamentSize,
+      entryFee,
+      currency,
+      issuer,
     } = body
 
-    // Validate required fields
     if (!playerAddress || !tournamentSize || !entryFee || !currency) {
-      console.error('[Tournament Join] Missing required fields')
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -39,47 +36,28 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // ✨ NEW: Step 0 - Check if player is already in ANY active tournament
-    console.log('[Tournament Join] Checking if player is already in a tournament...')
-    const { data: playerInTournaments, error: playerCheckError } = await supabase
+    // Check if player is already in any active tournament
+    const { data: existingEntries } = await supabase
       .from('tournament_players')
-      .select(`
-        tournament_id,
-        tournaments!inner (
-          id,
-          status
-        )
-      `)
+      .select('tournament_id, tournaments!inner(status)')
       .eq('player_address', playerAddress)
-      .in('tournaments.status', ['waiting', 'in_progress'])
+      .in('tournaments.status', ['waiting', 'in_progress', 'in-progress'])
 
-    if (playerCheckError) {
-      console.error('[Tournament Join] Error checking player tournaments:', playerCheckError)
-      // Don't fail here, just log and continue
-    }
-
-    if (playerInTournaments && playerInTournaments.length > 0) {
-      const existingTournamentId = playerInTournaments[0].tournament_id
-      const existingStatus = (playerInTournaments[0] as any).tournaments?.status
-      
-      console.log(`[Tournament Join] ❌ Player already in tournament ${existingTournamentId} with status ${existingStatus}`)
-      
+    if (existingEntries && existingEntries.length > 0) {
+      const existing = existingEntries[0]
       return NextResponse.json(
         {
           success: false,
-          error: 'Player already in an active tournament',
-          tournamentId: existingTournamentId,
-          status: existingStatus
+          error: 'Already in active tournament',
+          tournamentId: existing.tournament_id,
+          status: existing.tournaments.status,
         },
-        { status: 409 } // 409 Conflict
+        { status: 409 }
       )
     }
 
-    console.log('[Tournament Join] ✅ Player not in any active tournament')
-
-    // Step 1: Find existing waiting tournaments (simplified query)
-    console.log('[Tournament Join] Searching for existing tournaments...')
-    const { data: existingTournaments, error: findError } = await supabase
+    // Find waiting tournaments with exact match
+    const { data: tournaments } = await supabase
       .from('tournaments')
       .select('id, tournament_size, entry_fee, currency, issuer, status')
       .eq('status', 'waiting')
@@ -87,156 +65,119 @@ export async function POST(request: NextRequest) {
       .eq('entry_fee', entryFee)
       .eq('currency', currency)
 
-    if (findError) {
-      console.error('[Tournament Join] Error finding tournaments:', findError)
-      return NextResponse.json(
-        { error: `Database error: ${findError.message}` },
-        { status: 500 }
-      )
-    }
-
-    // Filter by issuer in code (handle null comparison properly)
-    const matchingTournaments = existingTournaments?.filter(t => {
-      if (issuer === null || issuer === undefined) {
-        return t.issuer === null
-      }
-      return t.issuer === issuer
-    }) || []
-
-    console.log('[Tournament Join] Found tournaments:', matchingTournaments.length)
+    // Filter issuer correctly (null vs string)
+    const matchingTournaments = (tournaments || []).filter(t =>
+      issuer == null ? t.issuer == null : t.issuer === issuer
+    )
 
     let tournamentId: string | null = null
 
-    // Check each tournament to find one that's not full
-    for (const tournament of matchingTournaments) {
+    // Find a tournament that's not full
+    for (const t of matchingTournaments) {
       const { count } = await supabase
         .from('tournament_players')
         .select('*', { count: 'exact', head: true })
-        .eq('tournament_id', tournament.id)
+        .eq('tournament_id', t.id)
 
-      console.log(`[Tournament Join] Tournament ${tournament.id} has ${count}/${tournament.tournament_size} players`)
-
-      if ((count || 0) < tournament.tournament_size) {
-        tournamentId = tournament.id
-        console.log('[Tournament Join] Joining existing tournament:', tournamentId)
+      if ((count || 0) < t.tournament_size) {
+        tournamentId = t.id
         break
       }
     }
 
-    // Step 2: Create new tournament if no available ones
+    // Create new tournament if none available
     if (!tournamentId) {
-      console.log('[Tournament Join] Creating new tournament...')
       const prizePool = entryFee * tournamentSize
-      
-      const { data: newTournament, error: createError } = await supabase
+
+      const { data: newT, error: createErr } = await supabase
         .from('tournaments')
         .insert({
           tournament_size: tournamentSize,
           entry_fee: entryFee,
-          currency: currency,
+          currency,
           issuer: issuer || null,
           status: 'waiting',
-          prize_pool: prizePool
+          prize_pool: prizePool,
         })
         .select()
         .single()
 
-      if (createError || !newTournament) {
-        console.error('[Tournament Join] Error creating tournament:', createError)
+      if (createErr || !newT) {
+        console.error('[Tournament Join] Create tournament error:', createErr)
         return NextResponse.json(
-          { error: `Failed to create tournament: ${createError?.message}` },
+          { error: 'Failed to create tournament' },
           { status: 500 }
         )
       }
 
-      tournamentId = newTournament.id
-      console.log('[Tournament Join] Created new tournament:', tournamentId)
+      tournamentId = newT.id
     }
 
-    // Step 3: Check if player already in this tournament (shouldn't happen after Step 0, but just in case)
-    console.log('[Tournament Join] Checking if player already joined this specific tournament...')
-    const { data: existingPlayer, error: checkError } = await supabase
+    // Double-check player isn't already in this specific tournament
+    const { data: alreadyIn } = await supabase
       .from('tournament_players')
       .select('id')
       .eq('tournament_id', tournamentId)
       .eq('player_address', playerAddress)
       .maybeSingle()
 
-    if (checkError) {
-      console.error('[Tournament Join] Error checking player:', checkError)
-    }
-
-    if (existingPlayer) {
-      console.log('[Tournament Join] Player already in this tournament')
+    if (alreadyIn) {
       return NextResponse.json({
         success: true,
         tournamentId,
-        message: 'Already in tournament'
+        message: 'Already joined',
       })
     }
 
-    // Step 4: Get current player count for ordering
-    console.log('[Tournament Join] Getting player count...')
-    const { count: playerCount, error: countError } = await supabase
+    // Get current player count for order
+    const { count: currentCount } = await supabase
       .from('tournament_players')
       .select('*', { count: 'exact', head: true })
       .eq('tournament_id', tournamentId)
 
-    if (countError) {
-      console.error('[Tournament Join] Error counting players:', countError)
-    }
-
-    // Step 5: Add player to tournament
-    console.log('[Tournament Join] Adding player to tournament...')
-    const { error: joinError } = await supabase
+    // Add player
+    const { error: insertErr } = await supabase
       .from('tournament_players')
       .insert({
         tournament_id: tournamentId,
         player_address: playerAddress,
-        player_order: (playerCount || 0) + 1,
-        is_active: true
+        player_order: (currentCount || 0) + 1,
+        is_active: true,
       })
 
-    if (joinError) {
-      console.error('[Tournament Join] Error joining tournament:', joinError)
+    if (insertErr) {
+      console.error('[Tournament Join] Insert error:', insertErr)
       return NextResponse.json(
-        { error: `Failed to join tournament: ${joinError.message}` },
+        { error: 'Failed to join tournament' },
         { status: 500 }
       )
     }
 
-    // Step 6: Check if tournament is now full
-    const newPlayerCount = (playerCount || 0) + 1
-    console.log(`[Tournament Join] Player count: ${newPlayerCount}/${tournamentSize}`)
-    
-    if (newPlayerCount >= tournamentSize) {
-      console.log('[Tournament Join] Tournament is full, starting game...')
-      const { error: updateError } = await supabase
+    const newCount = (currentCount || 0) + 1
+    const isFull = newCount >= tournamentSize
+
+    // Start tournament if full
+    if (isFull) {
+      await supabase
         .from('tournaments')
         .update({
           status: 'in_progress',
-          started_at: new Date().toISOString()
+          started_at: new Date().toISOString(),
         })
         .eq('id', tournamentId)
-
-      if (updateError) {
-        console.error('[Tournament Join] Error starting tournament:', updateError)
-      }
     }
 
-    console.log('[Tournament Join] Success!')
     return NextResponse.json({
       success: true,
       tournamentId,
-      playerCount: newPlayerCount,
+      playerCount: newCount,
       tournamentSize,
-      isFull: newPlayerCount >= tournamentSize
+      isFull,
     })
-
   } catch (error: any) {
     console.error('[Tournament Join] Unexpected error:', error)
     return NextResponse.json(
-      { error: `Internal server error: ${error.message}` },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }
