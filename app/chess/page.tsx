@@ -193,13 +193,15 @@ export default function Chess() {
       const { nextUrl, websocketUrl, uuid } = data
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      const isTablet = /iPad|Android/i.test(navigator.userAgent) && window.innerWidth >= 768
 
       // FIX 3: Better mobile/desktop handling
       let xamanWin: Window | null = null
       let popupCheckInterval: NodeJS.Timeout | null = null
       let timeoutId: NodeJS.Timeout | null = null
 
-      if (isMobile) {
+      // For mobile phones (not tablets), do full redirect
+      if (isMobile && !isTablet) {
         // Mobile: Store payment state before redirecting
         sessionStorage.setItem("waitingForPayment", uuid)
         sessionStorage.setItem("tournamentConfig", JSON.stringify({
@@ -209,9 +211,13 @@ export default function Chess() {
           currency: selectedAsset.currency,
           issuer: selectedAsset.issuer || null
         }))
+        
+        // Full page redirect on mobile - no popup
         window.location.href = nextUrl
+        return // Exit function - no WebSocket needed since we're leaving the page
       } else {
-        // Desktop: Open popup
+      } else {
+        // Desktop/Tablet: Open popup
         xamanWin = window.open(nextUrl, "_blank", "width=480,height=720")
 
         if (!xamanWin) {
@@ -244,7 +250,7 @@ export default function Chess() {
         }, 5 * 60 * 1000) // 5 minutes
       }
 
-      // Listen for payment success via WebSocket
+      // Listen for payment success via WebSocket (desktop/tablet only)
       const ws = new WebSocket(websocketUrl)
       
       ws.onmessage = async (event) => {
