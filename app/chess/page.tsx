@@ -31,6 +31,10 @@ export default function Chess() {
   const [selectedAssetIndex, setSelectedAssetIndex] = useState(0)
   const [showAssetDropdown, setShowAssetDropdown] = useState(false)
   const [theme, setTheme] = useState<Theme>("light")
+  const [existingTournament, setExistingTournament] = useState<{
+    id: string
+    status: string
+  } | null>(null)
 
   const selectedAsset = assets[selectedAssetIndex]
 
@@ -61,25 +65,26 @@ export default function Chess() {
       if (res.ok) {
         const data = await res.json()
         if (data.inTournament && data.tournamentId) {
-          console.log("Player already in tournament:", data.tournamentId)
+          console.log("Player already in tournament:", data.tournamentId, "Status:", data.status)
           
-          // Check tournament status
+          setExistingTournament({
+            id: data.tournamentId,
+            status: data.status
+          })
+
+          // Auto-redirect based on status
           if (data.status === "waiting") {
-            // Redirect back to waiting room
-            const shouldRejoin = confirm(
-              "You're already in a waiting room! Would you like to rejoin?"
-            )
-            if (shouldRejoin) {
+            // Give user a moment to see the page, then redirect
+            setTimeout(() => {
+              console.log("Auto-redirecting to waiting room...")
               window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
-            }
-          } else if (data.status === "in-progress") {
-            // Redirect back to active game
-            const shouldRejoin = confirm(
-              "You have an active game! Would you like to rejoin?"
-            )
-            if (shouldRejoin) {
+            }, 1500)
+          } else if (data.status === "in_progress" || data.status === "in-progress") {
+            // Redirect to active game
+            setTimeout(() => {
+              console.log("Auto-redirecting to active game...")
               window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
-            }
+            }, 1500)
           }
         }
       }
@@ -607,6 +612,23 @@ export default function Chess() {
             >
               {loadingLogin ? "Connecting..." : "Connect with Xaman"}
             </motion.button>
+          ) : existingTournament ? (
+            <>
+              {/* Player is already in a tournament */}
+              <div className="text-center py-8">
+                <div className="mb-4 text-4xl">♟️</div>
+                <h2 className="text-xl font-bold mb-2">
+                  {existingTournament.status === "waiting" 
+                    ? "You're in the Waiting Room!"
+                    : "You're in an Active Game!"
+                  }
+                </h2>
+                <p className="text-muted-foreground mb-6">
+                  Redirecting you back...
+                </p>
+                <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+              </div>
+            </>
           ) : (
             <>
               <div className="flex items-center justify-between">
