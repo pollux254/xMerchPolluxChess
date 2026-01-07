@@ -216,7 +216,6 @@ export default function Chess() {
         window.location.href = nextUrl
         return // Exit function - no WebSocket needed since we're leaving the page
       } else {
-      } else {
         // Desktop/Tablet: Open popup
         xamanWin = window.open(nextUrl, "_blank", "width=480,height=720")
 
