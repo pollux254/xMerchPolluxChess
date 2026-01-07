@@ -133,12 +133,45 @@ export default function Chess() {
       // FIX 2: Store that we're waiting for login
       sessionStorage.setItem("waitingForLogin", "true")
       
+      let signinPopup: Window | null = null
+      let popupCheckInterval: NodeJS.Timeout | null = null
+      let timeoutId: NodeJS.Timeout | null = null
+      
       if (isMobile) {
         // Mobile: redirect to Xaman app, it will return to /chess
         window.location.href = nextUrl
       } else {
         // Desktop: open in popup
-        window.open(nextUrl, "_blank", "width=480,height=720")
+        signinPopup = window.open(nextUrl, "_blank", "width=480,height=720")
+        
+        if (!signinPopup) {
+          alert("Popup blocked. Please allow popups for Xaman.")
+          setLoadingLogin(false)
+          return
+        }
+
+        // Monitor if user manually closes popup
+        popupCheckInterval = setInterval(() => {
+          if (signinPopup && signinPopup.closed) {
+            console.log("Signin popup was closed manually")
+            clearInterval(popupCheckInterval!)
+            if (timeoutId) clearTimeout(timeoutId)
+            ws.close()
+            setLoadingLogin(false)
+          }
+        }, 500)
+
+        // Auto-close popup after 5 minutes
+        timeoutId = setTimeout(() => {
+          if (signinPopup && !signinPopup.closed) {
+            console.log("Signin popup timeout - auto closing")
+            signinPopup.close()
+          }
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          ws.close()
+          setLoadingLogin(false)
+          alert("Sign-in request expired. Please try again.")
+        }, 5 * 60 * 1000)
       }
 
       const ws = new WebSocket(websocketUrl)
@@ -146,6 +179,15 @@ export default function Chess() {
         const status = JSON.parse(event.data)
 
         if (status.signed === true) {
+          // Clean up timers
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          if (timeoutId) clearTimeout(timeoutId)
+          
+          // Close popup on desktop
+          if (signinPopup && !signinPopup.closed) {
+            signinPopup.close()
+          }
+          
           try {
             const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
               method: "POST",
@@ -168,10 +210,42 @@ export default function Chess() {
           }
           ws.close()
         } else if (status.signed === false || status.expired) {
+          // Clean up timers
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          if (timeoutId) clearTimeout(timeoutId)
+          
+          // Close popup
+          if (signinPopup && !signinPopup.closed) {
+            signinPopup.close()
+          }
+          
           sessionStorage.removeItem("waitingForLogin")
           alert(status.signed === false ? "Sign-in rejected." : "Sign-in expired.")
           ws.close()
+          setLoadingLogin(false)
         }
+      }
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        
+        // Clean up timers
+        if (popupCheckInterval) clearInterval(popupCheckInterval)
+        if (timeoutId) clearTimeout(timeoutId)
+        
+        if (signinPopup && !signinPopup.closed) {
+          signinPopup.close()
+        }
+        ws.close()
+        setLoadingLogin(false)
+      }
+
+      ws.onclose = () => {
+        console.log("WebSocket closed")
+        
+        // Clean up timers when WebSocket closes
+        if (popupCheckInterval) clearInterval(popupCheckInterval)
+        if (timeoutId) clearTimeout(timeoutId)
       }
     } catch (err) {
       console.error("Login error:", err)
@@ -182,10 +256,74 @@ export default function Chess() {
     }
   }
 
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    // First, check if player is in an active game
+    if (playerID && existingTournament?.status === "in_progress") {
+      const confirmLeave = confirm(
+        "⚠️ You're in an active game! Logging out now will FORFEIT the match (you lose).\n\nAre you sure you want to logout and forfeit?"
+      )
+      if (!confirmLeave) {
+        return // Don't logout
+      }
+      
+      // Process forfeit - player loses, opponent wins
+      try {
+        const forfeitRes = await fetch("/api/tournaments/forfeit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerAddress: playerID,
+            tournamentId: existingTournament.id,
+            reason: "Player logged out during game"
+          })
+        })
+        
+        if (!forfeitRes.ok) {
+          console.error("Failed to process forfeit")
+          alert("Warning: Failed to register forfeit. Please contact support.")
+        } else {
+          alert("Game forfeited. Your opponent wins.")
+        }
+      } catch (err) {
+        console.error("Forfeit error:", err)
+        alert("Warning: Failed to register forfeit. Please contact support.")
+      }
+    }
+
+    // Check if in waiting room
+    if (playerID && existingTournament?.status === "waiting") {
+      const confirmLeave = confirm(
+        "You're in a waiting room. Logging out will remove you from the tournament.\n\nContinue logout?"
+      )
+      if (!confirmLeave) {
+        return
+      }
+      
+      // Remove player from tournament
+      try {
+        await fetch("/api/tournaments/leave", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerAddress: playerID,
+            tournamentId: existingTournament.id
+          })
+        })
+      } catch (err) {
+        console.error("Failed to leave tournament:", err)
+      }
+    }
+    
+    // Clear all state
     setPlayerID(null)
+    setExistingTournament(null)
     localStorage.removeItem("playerID")
+    sessionStorage.clear() // Clear all session data
+    
     alert("Wallet disconnected successfully!")
+    
+    // Reload page to ensure clean state
+    window.location.reload()
   }
 
   async function handlePayFee() {
