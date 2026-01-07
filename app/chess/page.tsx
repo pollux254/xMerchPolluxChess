@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Moon, Sun, Monitor, LogOut } from "lucide-react"
 import Link from "next/link"
+import { createClient } from "@supabase/supabase-js"
 
 type Theme = "light" | "middle" | "dark"
 
@@ -21,6 +22,12 @@ const assets: Asset[] = [
   { currency: "FUZZY", issuer: "rhCAT4hRdi2Y9puNdkpMzxrdKa5wkppR62", label: "FUZZY" },
   { currency: "RLUSD", issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", label: "RLUSD" },
 ]
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function Chess() {
   const [playerID, setPlayerID] = useState<string | null>(null)
@@ -53,7 +60,7 @@ export default function Chess() {
     if (savedID) {
       setPlayerID(savedID)
       
-      // ✨ NEW: Force cleanup any stuck tournament entries first
+      // Force cleanup any stuck tournament entries first
       cleanupPlayerTournaments(savedID).then(() => {
         // Then check if player is in a tournament
         checkExistingTournament(savedID)
@@ -61,7 +68,7 @@ export default function Chess() {
     }
   }, [])
 
-  // NEW: Force cleanup player from stuck tournaments
+  // Cleanup player from stuck tournaments
   async function cleanupPlayerTournaments(playerAddress: string) {
     try {
       console.log("🧹 Cleaning up any stuck tournament entries...")
@@ -79,11 +86,10 @@ export default function Chess() {
       }
     } catch (err) {
       console.log("Cleanup not available:", err)
-      // Non-critical, continue
     }
   }
 
-  // NEW: Check if player is already in a tournament
+  // Check if player is already in a tournament
   async function checkExistingTournament(playerAddress: string) {
     try {
       const res = await fetch(`/api/tournaments/check-player?address=${playerAddress}`)
@@ -99,13 +105,11 @@ export default function Chess() {
 
           // Auto-redirect based on status
           if (data.status === "waiting") {
-            // Give user a moment to see the page, then redirect
             setTimeout(() => {
               console.log("Auto-redirecting to waiting room...")
               window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
             }, 1500)
           } else if (data.status === "in_progress" || data.status === "in-progress") {
-            // Redirect to active game
             setTimeout(() => {
               console.log("Auto-redirecting to active game...")
               window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
@@ -115,7 +119,6 @@ export default function Chess() {
       }
     } catch (err) {
       console.log("No existing tournament check available:", err)
-      // Fail silently - feature not critical
     }
   }
 
@@ -130,13 +133,12 @@ export default function Chess() {
     try {
       setLoadingLogin(true)
 
-      // FIX 1: Add returnUrl to stay on /chess page after signin
       const returnUrl = `${window.location.origin}/chess`
 
       const res = await fetch("/api/auth/xaman/create-signin/xahau-signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnUrl }), // Pass returnUrl
+        body: JSON.stringify({ returnUrl }),
       })
 
       if (!res.ok) {
@@ -155,7 +157,6 @@ export default function Chess() {
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
       
-      // FIX 2: Store that we're waiting for login
       sessionStorage.setItem("waitingForLogin", "true")
       
       let signinPopup: Window | null = null
@@ -163,10 +164,8 @@ export default function Chess() {
       let timeoutId: NodeJS.Timeout | null = null
       
       if (isMobile) {
-        // Mobile: redirect to Xaman app, it will return to /chess
         window.location.href = nextUrl
       } else {
-        // Desktop: open in popup
         signinPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
         if (!signinPopup) {
@@ -175,7 +174,6 @@ export default function Chess() {
           return
         }
 
-        // Monitor if user manually closes popup
         popupCheckInterval = setInterval(() => {
           if (signinPopup && signinPopup.closed) {
             console.log("Signin popup was closed manually")
@@ -186,7 +184,6 @@ export default function Chess() {
           }
         }, 500)
 
-        // Auto-close popup after 5 minutes
         timeoutId = setTimeout(() => {
           if (signinPopup && !signinPopup.closed) {
             console.log("Signin popup timeout - auto closing")
@@ -204,11 +201,9 @@ export default function Chess() {
         const status = JSON.parse(event.data)
 
         if (status.signed === true) {
-          // Clean up timers
           if (popupCheckInterval) clearInterval(popupCheckInterval)
           if (timeoutId) clearTimeout(timeoutId)
           
-          // Close popup on desktop
           if (signinPopup && !signinPopup.closed) {
             signinPopup.close()
           }
@@ -224,10 +219,36 @@ export default function Chess() {
             const payloadData = await payloadRes.json()
 
             if (payloadData.account) {
-              setPlayerID(payloadData.account)
-              localStorage.setItem("playerID", payloadData.account)
-              sessionStorage.removeItem("waitingForLogin")
-              alert(`Logged in successfully!\nPlayer ID: ${payloadData.account}`)
+              const walletAddress = payloadData.account
+
+              // ✨ NEW: Create Supabase Auth session with wallet address
+              console.log("Creating Supabase session for wallet:", walletAddress)
+              
+              const { data: authData, error: authError } = await supabase.auth.signInAnonymously({
+                options: {
+                  data: {
+                    wallet_address: walletAddress
+                  }
+                }
+              })
+
+              if (authError) {
+                console.error("Supabase auth error:", authError)
+                // Fallback: still save wallet but without session
+                setPlayerID(walletAddress)
+                localStorage.setItem("playerID", walletAddress)
+                sessionStorage.removeItem("waitingForLogin")
+                alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+              } else {
+                // Success: both wallet AND Supabase session created
+                console.log("✅ Supabase session created:", authData.session?.user.id)
+                console.log("✅ Wallet stored in metadata:", authData.session?.user.user_metadata.wallet_address)
+                
+                setPlayerID(walletAddress)
+                localStorage.setItem("playerID", walletAddress)
+                sessionStorage.removeItem("waitingForLogin")
+                alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+              }
             }
           } catch (err) {
             console.error("Failed to get account:", err)
@@ -235,11 +256,9 @@ export default function Chess() {
           }
           ws.close()
         } else if (status.signed === false || status.expired) {
-          // Clean up timers
           if (popupCheckInterval) clearInterval(popupCheckInterval)
           if (timeoutId) clearTimeout(timeoutId)
           
-          // Close popup
           if (signinPopup && !signinPopup.closed) {
             signinPopup.close()
           }
@@ -254,7 +273,6 @@ export default function Chess() {
       ws.onerror = (error) => {
         console.error("WebSocket error:", error)
         
-        // Clean up timers
         if (popupCheckInterval) clearInterval(popupCheckInterval)
         if (timeoutId) clearTimeout(timeoutId)
         
@@ -268,7 +286,6 @@ export default function Chess() {
       ws.onclose = () => {
         console.log("WebSocket closed")
         
-        // Clean up timers when WebSocket closes
         if (popupCheckInterval) clearInterval(popupCheckInterval)
         if (timeoutId) clearTimeout(timeoutId)
       }
@@ -283,17 +300,15 @@ export default function Chess() {
 
   const handleDisconnect = async () => {
     if (!playerID) {
-      // Already disconnected
       localStorage.removeItem("playerID")
       sessionStorage.clear()
+      await supabase.auth.signOut()
       window.location.reload()
       return
     }
 
-    // First, check if player is in ANY tournament (waiting or active)
     let playerTournament = existingTournament
 
-    // If we don't have it in state, check the API
     if (!playerTournament) {
       try {
         const checkRes = await fetch(`/api/tournaments/check-player?address=${playerID}`)
@@ -311,16 +326,14 @@ export default function Chess() {
       }
     }
 
-    // If in active game, warn about forfeit
     if (playerTournament?.status === "in_progress" || playerTournament?.status === "in-progress") {
       const confirmLeave = confirm(
         "⚠️ You're in an active game! Logging out now will FORFEIT the match (you lose).\n\nAre you sure you want to logout and forfeit?"
       )
       if (!confirmLeave) {
-        return // Don't logout
+        return
       }
       
-      // Process forfeit - player loses, opponent wins
       try {
         const forfeitRes = await fetch("/api/tournaments/forfeit", {
           method: "POST",
@@ -342,9 +355,7 @@ export default function Chess() {
         console.error("Forfeit error:", err)
         alert("Warning: Failed to register forfeit. Please contact support.")
       }
-    }
-    // If in waiting room, remove from tournament
-    else if (playerTournament?.status === "waiting") {
+    } else if (playerTournament?.status === "waiting") {
       const confirmLeave = confirm(
         "You're in a waiting room. Logging out will remove you from the tournament.\n\nContinue logout?"
       )
@@ -352,7 +363,6 @@ export default function Chess() {
         return
       }
       
-      // Remove player from tournament
       try {
         const leaveRes = await fetch("/api/tournaments/leave", {
           method: "POST",
@@ -365,29 +375,26 @@ export default function Chess() {
         
         if (!leaveRes.ok) {
           console.error("Failed to leave tournament")
-          // Continue with logout anyway
         } else {
           console.log("✅ Successfully left tournament")
         }
       } catch (err) {
         console.error("Failed to leave tournament:", err)
-        // Continue with logout anyway
       }
     }
     
-    // Clear all frontend state
     setPlayerID(null)
     setExistingTournament(null)
     
-    // ✨ Broadcast logout to all tabs/pages
-    localStorage.removeItem("playerID") // This triggers 'storage' event in other tabs!
-    sessionStorage.clear() // Clear all session data
+    localStorage.removeItem("playerID")
+    sessionStorage.clear()
+    
+    // ✨ NEW: Sign out of Supabase Auth
+    await supabase.auth.signOut()
     
     console.log("🚪 Logout complete - all state cleared")
     
     alert("Wallet disconnected successfully!")
-    
-    // Reload page to ensure clean state
     window.location.reload()
   }
 
@@ -401,7 +408,6 @@ export default function Chess() {
       setLoadingPay(true)
       const memo = `Chess Tournament - ${selectedSize === 1 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} ${selectedAsset.currency}`
 
-      // Add return URL for mobile flow
       const returnUrl = `${window.location.origin}/chess`
       
       console.log("Creating payment with returnUrl:", returnUrl)
@@ -412,7 +418,7 @@ export default function Chess() {
         memo,
         player: playerID,
         size: selectedSize,
-        returnUrl, // Add this so Xaman knows where to return
+        returnUrl,
       }
 
       if (selectedAsset.issuer) {
@@ -449,16 +455,13 @@ export default function Chess() {
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
       const isTablet = /iPad|Android/i.test(navigator.userAgent) && window.innerWidth >= 768
 
-      // FIX 3: Better mobile/desktop handling
       let xamanWin: Window | null = null
       let popupCheckInterval: NodeJS.Timeout | null = null
       let timeoutId: NodeJS.Timeout | null = null
 
-      // For mobile phones (not tablets), do full redirect
       if (isMobile && !isTablet) {
         console.log("Mobile detected - storing payment state and redirecting")
         
-        // Mobile: Store payment state before redirecting
         sessionStorage.setItem("waitingForPayment", uuid)
         sessionStorage.setItem("tournamentConfig", JSON.stringify({
           playerAddress: playerID,
@@ -473,12 +476,10 @@ export default function Chess() {
           config: sessionStorage.getItem("tournamentConfig")
         })
         
-        // Full page redirect on mobile - no popup
         console.log("Redirecting to:", nextUrl)
         window.location.href = nextUrl
-        return // Exit function - no WebSocket needed since we're leaving the page
+        return
       } else {
-        // Desktop/Tablet: Open popup
         xamanWin = window.open(nextUrl, "_blank", "width=480,height=720")
 
         if (!xamanWin) {
@@ -487,7 +488,6 @@ export default function Chess() {
           return
         }
 
-        // FIX 3A: Monitor if user manually closes popup
         popupCheckInterval = setInterval(() => {
           if (xamanWin && xamanWin.closed) {
             console.log("Popup was closed manually")
@@ -498,7 +498,6 @@ export default function Chess() {
           }
         }, 500)
 
-        // FIX 3B: Auto-close popup after 5 minutes (payload expiry)
         timeoutId = setTimeout(() => {
           if (xamanWin && !xamanWin.closed) {
             console.log("Popup timeout - auto closing")
@@ -508,10 +507,9 @@ export default function Chess() {
           ws.close()
           setLoadingPay(false)
           alert("Payment request expired. Please try again.")
-        }, 5 * 60 * 1000) // 5 minutes
+        }, 5 * 60 * 1000)
       }
 
-      // Listen for payment success via WebSocket (desktop/tablet only)
       const ws = new WebSocket(websocketUrl)
       
       ws.onmessage = async (event) => {
@@ -520,16 +518,13 @@ export default function Chess() {
         if (status.signed === true) {
           ws.close()
           
-          // Clean up timers
           if (popupCheckInterval) clearInterval(popupCheckInterval)
           if (timeoutId) clearTimeout(timeoutId)
           
-          // FIX 4: Close popup window on desktop
           if (xamanWin && !xamanWin.closed) {
             xamanWin.close()
           }
           
-          // Payment successful! Now join tournament
           try {
             const joinRes = await fetch("/api/tournaments/join", {
               method: "POST",
@@ -547,11 +542,9 @@ export default function Chess() {
               const errorText = await joinRes.text()
               console.error("Tournament join error:", errorText)
               
-              // Check if it's a "already in tournament" error
               if (errorText.includes("already") || errorText.includes("duplicate")) {
                 alert("You're already in a tournament! Redirecting to waiting room...")
                 
-                // Try to get tournament ID from error or fetch it
                 try {
                   const checkRes = await fetch(`/api/tournaments/check-player?address=${playerID}`)
                   if (checkRes.ok) {
@@ -572,11 +565,9 @@ export default function Chess() {
             const joinData = await joinRes.json()
 
             if (joinData.success) {
-              // Clean up session storage
               sessionStorage.removeItem("waitingForPayment")
               sessionStorage.removeItem("tournamentConfig")
               
-              // Redirect to waiting room
               window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
             } else {
               alert("Payment successful but failed to join tournament. Contact support.")
@@ -588,11 +579,9 @@ export default function Chess() {
             setLoadingPay(false)
           }
         } else if (status.signed === false || status.expired) {
-          // Clean up timers
           if (popupCheckInterval) clearInterval(popupCheckInterval)
           if (timeoutId) clearTimeout(timeoutId)
           
-          // FIX 5: Close popup on rejection/expiry too
           if (xamanWin && !xamanWin.closed) {
             xamanWin.close()
           }
@@ -605,7 +594,6 @@ export default function Chess() {
       ws.onerror = (error) => {
         console.error("WebSocket error:", error)
         
-        // Clean up timers
         if (popupCheckInterval) clearInterval(popupCheckInterval)
         if (timeoutId) clearTimeout(timeoutId)
         
@@ -619,7 +607,6 @@ export default function Chess() {
       ws.onclose = () => {
         console.log("WebSocket closed")
         
-        // Clean up timers when WebSocket closes
         if (popupCheckInterval) clearInterval(popupCheckInterval)
         if (timeoutId) clearTimeout(timeoutId)
       }
@@ -630,14 +617,13 @@ export default function Chess() {
     }
   }
 
-  // FIX 6: Handle return from mobile Xaman
+  // Handle return from mobile Xaman
   useEffect(() => {
     console.log("Chess page loaded - checking for mobile return...")
     console.log("Current URL:", window.location.href)
     console.log("PlayerID:", playerID)
     
     const checkMobileReturn = async () => {
-      // Check if we just returned from Xaman (URL might have xumm parameters)
       const urlParams = new URLSearchParams(window.location.search)
       const hasXamanParams = urlParams.has('xumm') || window.location.href.includes('xumm')
       
@@ -652,23 +638,19 @@ export default function Chess() {
       })
       
       if (waitingForPayment && tournamentConfig) {
-        // User returned from mobile payment
         console.log("✅ Detected return from mobile payment")
         setLoadingPay(true)
         
-        // Clean URL by removing any Xaman parameters
         if (hasXamanParams) {
           window.history.replaceState({}, '', '/chess')
         }
         
-        // Small delay to ensure page is fully loaded
         await new Promise(resolve => setTimeout(resolve, 2000))
         
         try {
           const config = JSON.parse(tournamentConfig)
           console.log("Tournament config:", config)
           
-          // Check payment status
           console.log("Checking payment status for UUID:", waitingForPayment)
           const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
             method: "POST",
@@ -686,7 +668,6 @@ export default function Chess() {
           console.log("Payment status:", payloadData)
           
           if (payloadData.meta?.signed === true) {
-            // Payment was successful, join tournament
             console.log("Payment successful, joining tournament...")
             
             const joinRes = await fetch("/api/tournaments/join", {
@@ -702,7 +683,6 @@ export default function Chess() {
             if (!joinRes.ok) {
               console.error("Tournament join error:", joinText)
               
-              // Try to parse as JSON
               let joinData
               try {
                 joinData = JSON.parse(joinText)
@@ -710,7 +690,6 @@ export default function Chess() {
                 throw new Error(`Failed to join tournament: ${joinText}`)
               }
               
-              // Check if player is already in tournament
               if (joinData.tournamentId && (joinText.includes("already") || joinText.includes("duplicate"))) {
                 console.log("Player already in tournament, redirecting...")
                 sessionStorage.removeItem("waitingForPayment")
@@ -726,28 +705,23 @@ export default function Chess() {
             console.log("Tournament join response:", joinData)
 
             if (joinData.success && joinData.tournamentId) {
-              // Clean up
               sessionStorage.removeItem("waitingForPayment")
               sessionStorage.removeItem("tournamentConfig")
               
-              // Show success message briefly
               console.log("Redirecting to waiting room:", joinData.tournamentId)
               alert("Payment successful! Joining tournament...")
               
-              // Redirect to waiting room
               window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
             } else {
               throw new Error(joinData.error || "Failed to join tournament")
             }
           } else if (payloadData.meta?.signed === false) {
-            // Payment was rejected
             console.log("Payment was rejected")
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
             alert("Payment was rejected.")
             setLoadingPay(false)
           } else {
-            // Payment still pending or expired
             console.log("Payment not completed yet. Status:", payloadData)
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
@@ -766,9 +740,8 @@ export default function Chess() {
       }
     }
 
-    // Only run on mount
     checkMobileReturn()
-  }, []) // Empty dependency array - run once on mount
+  }, [])
 
   const handleFreePlay = () => {
     if (!playerID) {
@@ -827,7 +800,6 @@ export default function Chess() {
             </motion.button>
           ) : existingTournament ? (
             <>
-              {/* Player is already in a tournament */}
               <div className="text-center py-8">
                 <div className="mb-4 text-4xl">♟️</div>
                 <h2 className="text-xl font-bold mb-2">
