@@ -41,6 +41,7 @@
     "react-dom": "19.2.3",
     "stockfish": "^17.1.0",
     "websocket": "^1.0.35",
+    "xrpl": "^4.5.0",
     "xumm-sdk": "^1.11.2"
   },
   "devDependencies": {

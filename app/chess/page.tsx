@@ -59,13 +59,10 @@ export default function Chess() {
     const savedID = localStorage.getItem("playerID")
     if (savedID) {
       setPlayerID(savedID)
-      
-      // ✅ Just check if player is in a tournament (no auto-cleanup)
       checkExistingTournament(savedID)
     }
   }, [])
 
-  // Cleanup player from stuck tournaments (kept for logout use)
   async function cleanupPlayerTournaments(playerAddress: string) {
     try {
       console.log("🧹 Cleaning up any stuck tournament entries...")
@@ -86,7 +83,6 @@ export default function Chess() {
     }
   }
 
-  // Check if player is already in a tournament
   async function checkExistingTournament(playerAddress: string) {
     try {
       console.log("🔍 Checking existing tournament for:", playerAddress)
@@ -121,7 +117,6 @@ export default function Chess() {
             status: data.status
           })
 
-          // Auto-redirect based on status
           if (data.status === "waiting") {
             setTimeout(() => {
               console.log("🚀 Auto-redirecting to waiting room...")
@@ -402,7 +397,6 @@ export default function Chess() {
       }
     }
     
-    // ✅ Only cleanup when explicitly logging out
     if (playerID) {
       console.log("🧹 Running cleanup on logout...")
       try {
@@ -625,7 +619,6 @@ export default function Chess() {
               console.log("✅ Tournament created:", tournamentId)
               console.log("🔍 Verifying tournament exists in database before redirect...")
               
-              // ✅ Poll database to confirm tournament exists (max 5 seconds)
               let verified = false
               const maxAttempts = 10
               const delayMs = 500
@@ -710,7 +703,7 @@ export default function Chess() {
     }
   }
 
-  // Handle return from mobile Xaman - ✅ UPDATED FOR MOBILE
+  // ✅ UPDATED: Mobile return handler with longer waits and more retries
   useEffect(() => {
     console.log("Chess page loaded - checking for mobile return...")
     console.log("Current URL:", window.location.href)
@@ -738,7 +731,6 @@ export default function Chess() {
           window.history.replaceState({}, '', '/chess')
         }
         
-        // ✅ INCREASED: Wait 5 seconds instead of 2 (mobile networks are slower)
         console.log("⏳ Waiting 5 seconds for payment webhook to process...")
         await new Promise(resolve => setTimeout(resolve, 5000))
         
@@ -748,7 +740,6 @@ export default function Chess() {
           
           console.log("Checking payment status for UUID:", waitingForPayment)
           
-          // ✅ NEW: Retry payment status check up to 3 times
           let payloadData = null
           const maxStatusAttempts = 3
           
@@ -765,14 +756,12 @@ export default function Chess() {
               payloadData = await payloadRes.json()
               console.log("Payment status:", payloadData)
               
-              // If we got a definitive answer (signed or rejected), stop checking
               if (payloadData.meta?.signed === true || payloadData.meta?.signed === false) {
                 console.log("✅ Got definitive payment status")
                 break
               }
             }
             
-            // Wait 2 seconds before retry
             if (statusAttempt < maxStatusAttempts) {
               console.log("⏳ Payment status not ready, waiting 2 seconds...")
               await new Promise(resolve => setTimeout(resolve, 2000))
@@ -845,7 +834,6 @@ export default function Chess() {
               console.log("✅ Tournament created:", tournamentId)
               console.log("🔍 Verifying tournament exists in database before redirect...")
               
-              // ✅ INCREASED: 20 attempts instead of 10 for mobile (slower network)
               let verified = false
               const maxAttempts = 20
               const delayMs = 500
@@ -926,7 +914,6 @@ export default function Chess() {
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center px-6 py-12">
-      {/* Top Bar */}
       <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 flex items-center justify-between z-50">
         <Link href="/" className="text-lg font-semibold text-foreground hover:text-primary transition-colors">
           ← Home
@@ -1005,7 +992,6 @@ export default function Chess() {
                 </button>
               </div>
 
-              {/* Tournament Size Selection */}
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Tournament Size</p>
                 <div className="grid grid-cols-4 gap-3">
@@ -1027,7 +1013,6 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* Asset & Entry Fee Selection */}
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Entry Fee</p>
                 <div className="relative mb-4">
@@ -1074,7 +1059,6 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* Play Buttons */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}

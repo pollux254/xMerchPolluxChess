@@ -58,6 +58,9 @@ importers:
       websocket:
         specifier: ^1.0.35
         version: 1.0.35
+      xrpl:
+        specifier: ^4.5.0
+        version: 4.5.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       xumm-sdk:
         specifier: ^1.11.2
         version: 1.11.2
@@ -1159,6 +1162,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@noble/curves@1.9.7':
+    resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
+    engines: {node: ^14.21.3 || >=16}
+
+  '@noble/hashes@1.8.0':
+    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
+    engines: {node: ^14.21.3 || >=16}
+
   '@nodelib/fs.stat@1.1.3':
     resolution: {integrity: sha512-shAmDyaQC4H92APFoIaVDHCx5bStIocgvbwQyxPRrbUY20V1EYTbSDchWbuwlMG3V17cprZhA6+78JfB+3DTPw==}
     engines: {node: '>= 6'}
@@ -1172,6 +1183,15 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
+
+  '@scure/base@1.2.6':
+    resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
+
+  '@scure/bip32@1.7.0':
+    resolution: {integrity: sha512-E4FFX/N3f4B80AKWp5dP6ow+flD1LQZo/w8UnLGYZO674jS6YnYeepycOOksv+vLPSpgN35wgKgy+ybfTb2SMw==}
+
+  '@scure/bip39@1.6.0':
+    resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
 
   '@supabase/auth-js@2.89.0':
     resolution: {integrity: sha512-wiWZdz8WMad8LQdJMWYDZ2SJtZP5MwMqzQq3ehtW2ngiI3UTgbKiFrvMUUS3KADiVlk4LiGfODB2mrYx7w2f8w==}
@@ -1505,6 +1525,13 @@ packages:
 
   '@webassemblyjs/wast-printer@1.8.5':
     resolution: {integrity: sha512-w0U0pD4EhlnvRyeJzBqaVSJAo9w/ce7/WPogeXLzGkO6hzhr4GnQIZ4W4uUt5b9ooAaXPtnXlj0gzsXEOUNYMg==}
+
+  '@xrplf/isomorphic@1.0.1':
+    resolution: {integrity: sha512-0bIpgx8PDjYdrLFeC3csF305QQ1L7sxaWnL5y71mCvhenZzJgku9QsA+9QCXBC1eNYtxWO/xR91zrXJy2T/ixg==}
+    engines: {node: '>=16.0.0'}
+
+  '@xrplf/secret-numbers@2.0.0':
+    resolution: {integrity: sha512-z3AOibRTE9E8MbjgzxqMpG1RNaBhQ1jnfhNCa1cGf2reZUJzPMYs4TggQTc7j8+0WyV3cr7y/U8Oz99SXIkN5Q==}
 
   '@xtuc/ieee754@1.2.0':
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}
@@ -2916,6 +2943,9 @@ packages:
 
   eventemitter3@4.0.7:
     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
+
+  eventemitter3@5.0.1:
+    resolution: {integrity: sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA==}
 
   events@3.3.0:
     resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
@@ -5607,6 +5637,18 @@ packages:
     resolution: {integrity: sha512-5Di9UC0+8h1L6ZD2d7awM7E/T4uA1fJRlx6zk/NvdCCVEoAnFqvHmCuNeIKoCeIixBX/q8uM+6ycDvF8woqosA==}
     engines: {node: '>= 0.8'}
 
+  ripple-address-codec@5.0.0:
+    resolution: {integrity: sha512-de7osLRH/pt5HX2xw2TRJtbdLLWHu0RXirpQaEeCnWKY5DYHykh3ETSkofvm0aX0LJiV7kwkegJxQkmbO94gWw==}
+    engines: {node: '>= 16'}
+
+  ripple-binary-codec@2.6.0:
+    resolution: {integrity: sha512-OJBRxjjalO7SrIwydHhcC9wOFLoeKcawoqSEfGZilAtXROYTWHx5kTly2VcUMmMMSEYIh1+yEstBtLBObNjeKQ==}
+    engines: {node: '>= 18'}
+
+  ripple-keypairs@2.0.0:
+    resolution: {integrity: sha512-b5rfL2EZiffmklqZk1W+dvSy97v3V/C7936WxCCgDynaGPp7GE6R2XO7EU9O2LlM/z95rj870IylYnOQs+1Rag==}
+    engines: {node: '>= 16'}
+
   rsvp@4.8.5:
     resolution: {integrity: sha512-nfMOlASu9OnRJo1mbEk2cz0D56a1MBNrJ7orjRZQG10XDyuvwksKbuXNp6qa+kbn839HwjwhBzhFmdsaEAfauA==}
     engines: {node: 6.* || >= 7.*}
@@ -6693,6 +6735,10 @@ packages:
 
   xregexp@4.4.1:
     resolution: {integrity: sha512-2u9HwfadaJaY9zHtRRnH6BY6CQVNQKkYm3oLtC9gJXXzfsbACg5X5e4EZZGVAH+YIfa+QA9lsFQTTe3HURF3ag==}
+
+  xrpl@4.5.0:
+    resolution: {integrity: sha512-fH3mmRMAiio53JaiPOhbaBLPo9H5qLpgHLkt2YWfrwppjvw70wjRcMBXGB67yEl4KWVi7yDhnZBbrtUdZrNHhA==}
+    engines: {node: '>=18.0.0'}
 
   xtend@4.0.2:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
@@ -8091,6 +8137,12 @@ snapshots:
   '@next/swc-win32-x64-msvc@16.1.1':
     optional: true
 
+  '@noble/curves@1.9.7':
+    dependencies:
+      '@noble/hashes': 1.8.0
+
+  '@noble/hashes@1.8.0': {}
+
   '@nodelib/fs.stat@1.1.3': {}
 
   '@pkgjs/parseargs@0.11.0':
@@ -8101,6 +8153,19 @@ snapshots:
       chessground: 8.3.5
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
+
+  '@scure/base@1.2.6': {}
+
+  '@scure/bip32@1.7.0':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
+      '@scure/base': 1.2.6
+
+  '@scure/bip39@1.6.0':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      '@scure/base': 1.2.6
 
   '@supabase/auth-js@2.89.0':
     dependencies:
@@ -8504,6 +8569,23 @@ snapshots:
       '@webassemblyjs/ast': 1.8.5
       '@webassemblyjs/wast-parser': 1.8.5
       '@xtuc/long': 4.2.2
+
+  '@xrplf/isomorphic@1.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      eventemitter3: 5.0.1
+      ws: 8.19.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@xrplf/secret-numbers@2.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)':
+    dependencies:
+      '@xrplf/isomorphic': 1.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      ripple-keypairs: 2.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   '@xtuc/ieee754@1.2.0': {}
 
@@ -10256,6 +10338,8 @@ snapshots:
       es5-ext: 0.10.64
 
   eventemitter3@4.0.7: {}
+
+  eventemitter3@5.0.1: {}
 
   events@3.3.0: {}
 
@@ -13613,6 +13697,32 @@ snapshots:
       hash-base: 3.1.2
       inherits: 2.0.4
 
+  ripple-address-codec@5.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10):
+    dependencies:
+      '@scure/base': 1.2.6
+      '@xrplf/isomorphic': 1.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  ripple-binary-codec@2.6.0(bufferutil@4.0.9)(utf-8-validate@5.0.10):
+    dependencies:
+      '@xrplf/isomorphic': 1.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      bignumber.js: 9.3.1
+      ripple-address-codec: 5.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  ripple-keypairs@2.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10):
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@xrplf/isomorphic': 1.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      ripple-address-codec: 5.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   rsvp@4.8.5: {}
 
   run-async@2.4.1: {}
@@ -14993,6 +15103,22 @@ snapshots:
   xregexp@4.4.1:
     dependencies:
       '@babel/runtime-corejs3': 7.28.4
+
+  xrpl@4.5.0(bufferutil@4.0.9)(utf-8-validate@5.0.10):
+    dependencies:
+      '@scure/bip32': 1.7.0
+      '@scure/bip39': 1.6.0
+      '@xrplf/isomorphic': 1.0.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      '@xrplf/secret-numbers': 2.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      bignumber.js: 9.3.1
+      eventemitter3: 5.0.1
+      fast-json-stable-stringify: 2.1.0
+      ripple-address-codec: 5.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      ripple-binary-codec: 2.6.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      ripple-keypairs: 2.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   xtend@4.0.2: {}
 

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // ✅ NEW: Find WAITING and IN_PROGRESS tournaments older than 10 minutes
+    // ✅ Find WAITING and IN_PROGRESS tournaments older than 10 minutes
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
 
     const { data: stuckTournaments, error: findError } = await supabase
@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
         )
       `)
       .eq('player_address', playerAddress)
-      .in('tournaments.status', ['waiting', 'in_progress'])  // ✅ Remove from both waiting AND stuck in-progress
-      .lt('joined_at', tenMinutesAgo.toISOString())  // ✅ ONLY old entries
+      .in('tournaments.status', ['waiting', 'in_progress'])
+      .lt('joined_at', tenMinutesAgo.toISOString())
 
     if (findError) {
       console.error('[Cleanup] Error finding tournaments:', findError)
@@ -67,14 +67,13 @@ export async function POST(request: NextRequest) {
     
     const removedFrom: string[] = []
 
-    // Remove player from stuck tournaments (waiting or in_progress)
     for (const entry of stuckTournaments) {
       const tournamentId = entry.tournament_id
-      const status = (entry.tournaments as any)?.status || 'unknown'
+      const tournament = entry.tournaments as any
+      const status = tournament?.status || 'unknown'
       
       console.log(`[Cleanup] Removing from stuck ${status} tournament ${tournamentId}`)
 
-      // Delete player record
       const { error: deleteError } = await supabase
         .from('tournament_players')
         .delete()
@@ -88,7 +87,6 @@ export async function POST(request: NextRequest) {
 
       removedFrom.push(tournamentId)
 
-      // Check if tournament is now empty
       const { count: remainingPlayers } = await supabase
         .from('tournament_players')
         .select('*', { count: 'exact', head: true })
