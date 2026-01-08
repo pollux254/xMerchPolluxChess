@@ -625,7 +625,7 @@ export default function Chess() {
               console.log("✅ Tournament created:", tournamentId)
               console.log("🔍 Verifying tournament exists in database before redirect...")
               
-              // ✅ NEW: Poll database to confirm tournament exists (max 5 seconds)
+              // ✅ Poll database to confirm tournament exists (max 5 seconds)
               let verified = false
               const maxAttempts = 10
               const delayMs = 500
@@ -710,7 +710,7 @@ export default function Chess() {
     }
   }
 
-  // Handle return from mobile Xaman
+  // Handle return from mobile Xaman - ✅ UPDATED FOR MOBILE
   useEffect(() => {
     console.log("Chess page loaded - checking for mobile return...")
     console.log("Current URL:", window.location.href)
@@ -738,30 +738,53 @@ export default function Chess() {
           window.history.replaceState({}, '', '/chess')
         }
         
-        await new Promise(resolve => setTimeout(resolve, 2000))
+        // ✅ INCREASED: Wait 5 seconds instead of 2 (mobile networks are slower)
+        console.log("⏳ Waiting 5 seconds for payment webhook to process...")
+        await new Promise(resolve => setTimeout(resolve, 5000))
         
         try {
           const config = JSON.parse(tournamentConfig)
           console.log("Tournament config:", config)
           
           console.log("Checking payment status for UUID:", waitingForPayment)
-          const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ uuid: waitingForPayment }),
-          })
+          
+          // ✅ NEW: Retry payment status check up to 3 times
+          let payloadData = null
+          const maxStatusAttempts = 3
+          
+          for (let statusAttempt = 1; statusAttempt <= maxStatusAttempts; statusAttempt++) {
+            console.log(`📡 Payment status check attempt ${statusAttempt}/${maxStatusAttempts}...`)
+            
+            const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ uuid: waitingForPayment }),
+            })
 
-          if (!payloadRes.ok) {
-            const errorText = await payloadRes.text()
-            console.error("Payment check failed:", errorText)
-            throw new Error("Failed to check payment status")
+            if (payloadRes.ok) {
+              payloadData = await payloadRes.json()
+              console.log("Payment status:", payloadData)
+              
+              // If we got a definitive answer (signed or rejected), stop checking
+              if (payloadData.meta?.signed === true || payloadData.meta?.signed === false) {
+                console.log("✅ Got definitive payment status")
+                break
+              }
+            }
+            
+            // Wait 2 seconds before retry
+            if (statusAttempt < maxStatusAttempts) {
+              console.log("⏳ Payment status not ready, waiting 2 seconds...")
+              await new Promise(resolve => setTimeout(resolve, 2000))
+            }
           }
           
-          const payloadData = await payloadRes.json()
-          console.log("Payment status:", payloadData)
+          if (!payloadData) {
+            throw new Error("Failed to check payment status after all attempts")
+          }
           
           if (payloadData.meta?.signed === true) {
-            console.log("Payment successful, validating wallet...")
+            console.log("✅ Payment successful, validating wallet...")
             
             const signingWallet = payloadData.account
             const currentPlayerID = localStorage.getItem("playerID")
@@ -822,9 +845,9 @@ export default function Chess() {
               console.log("✅ Tournament created:", tournamentId)
               console.log("🔍 Verifying tournament exists in database before redirect...")
               
-              // ✅ NEW: Poll database to confirm tournament exists (max 5 seconds)
+              // ✅ INCREASED: 20 attempts instead of 10 for mobile (slower network)
               let verified = false
-              const maxAttempts = 10
+              const maxAttempts = 20
               const delayMs = 500
               
               for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -853,36 +876,36 @@ export default function Chess() {
                 sessionStorage.removeItem("waitingForPayment")
                 sessionStorage.removeItem("tournamentConfig")
                 console.log("🚀 Redirecting to verified tournament...")
-                alert("Payment successful! Joining tournament...")
+                alert("✅ Payment successful! Joining tournament...")
                 window.location.href = `/waiting-room?tournamentId=${tournamentId}`
               } else {
                 console.error("💥 Failed to verify tournament after all attempts")
                 sessionStorage.removeItem("waitingForPayment")
                 sessionStorage.removeItem("tournamentConfig")
-                alert("Tournament created but verification failed. Please refresh the page or contact support.")
+                alert("⚠️ Tournament created but verification failed.\n\nPlease refresh the page to continue, or contact support if the issue persists.")
                 setLoadingPay(false)
               }
             } else {
               throw new Error(joinData.error || "Failed to join tournament")
             }
           } else if (payloadData.meta?.signed === false) {
-            console.log("Payment was rejected")
+            console.log("❌ Payment was rejected")
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
             alert("Payment was rejected.")
             setLoadingPay(false)
           } else {
-            console.log("Payment not completed yet. Status:", payloadData)
+            console.log("⏳ Payment not completed yet. Status:", payloadData)
             sessionStorage.removeItem("waitingForPayment")
             sessionStorage.removeItem("tournamentConfig")
-            alert("Payment was not completed. Please try again.")
+            alert("⏳ Payment was not completed in time. Please try again.")
             setLoadingPay(false)
           }
         } catch (err) {
           console.error("Mobile return error:", err)
           sessionStorage.removeItem("waitingForPayment")
           sessionStorage.removeItem("tournamentConfig")
-          alert(`Failed to process payment: ${err instanceof Error ? err.message : 'Unknown error'}. Please contact support.`)
+          alert(`❌ Failed to process payment: ${err instanceof Error ? err.message : 'Unknown error'}.\n\nPlease contact support if you were charged.`)
           setLoadingPay(false)
         }
       } else {
