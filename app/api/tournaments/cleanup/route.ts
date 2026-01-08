@@ -4,10 +4,9 @@ import { NextRequest, NextResponse } from 'next/server'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-// Force remove player from ALL active tournaments
 export async function POST(request: NextRequest) {
   try {
-    console.log('[Cleanup] Starting player cleanup...')
+    console.log('[Cleanup] Starting smart cleanup...')
     
     if (!supabaseUrl || !supabaseServiceKey) {
       console.error('[Cleanup] Missing Supabase credentials')
@@ -29,18 +28,23 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Find all tournaments player is in (waiting or in-progress)
-    const { data: playerInTournaments, error: findError } = await supabase
+    // ✅ NEW: Find WAITING and IN_PROGRESS tournaments older than 10 minutes
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
+
+    const { data: stuckTournaments, error: findError } = await supabase
       .from('tournament_players')
       .select(`
         tournament_id,
+        joined_at,
         tournaments!inner (
           id,
-          status
+          status,
+          created_at
         )
       `)
       .eq('player_address', playerAddress)
-      .in('tournaments.status', ['waiting', 'in_progress'])
+      .in('tournaments.status', ['waiting', 'in_progress'])  // ✅ Remove from both waiting AND stuck in-progress
+      .lt('joined_at', tenMinutesAgo.toISOString())  // ✅ ONLY old entries
 
     if (findError) {
       console.error('[Cleanup] Error finding tournaments:', findError)
@@ -50,25 +54,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!playerInTournaments || playerInTournaments.length === 0) {
-      console.log('[Cleanup] No active tournaments found for player')
+    if (!stuckTournaments || stuckTournaments.length === 0) {
+      console.log('[Cleanup] No stuck tournaments found (good!)')
       return NextResponse.json({
         success: true,
-        message: 'No active tournaments',
+        message: 'No cleanup needed',
         removed: 0
       })
     }
 
-    console.log(`[Cleanup] Found ${playerInTournaments.length} tournament(s) for player`)
-
+    console.log(`[Cleanup] Found ${stuckTournaments.length} stuck tournament(s)`)
+    
     const removedFrom: string[] = []
 
-    // Remove player from each tournament
-    for (const entry of playerInTournaments) {
+    // Remove player from stuck tournaments (waiting or in_progress)
+    for (const entry of stuckTournaments) {
       const tournamentId = entry.tournament_id
-      const status = (entry as any).tournaments?.status
-
-      console.log(`[Cleanup] Removing player from tournament ${tournamentId} (status: ${status})`)
+      const status = (entry.tournaments as any)?.status || 'unknown'
+      
+      console.log(`[Cleanup] Removing from stuck ${status} tournament ${tournamentId}`)
 
       // Delete player record
       const { error: deleteError } = await supabase
@@ -84,33 +88,29 @@ export async function POST(request: NextRequest) {
 
       removedFrom.push(tournamentId)
 
-      // If tournament is waiting, check if it should be cancelled
-      if (status === 'waiting') {
-        const { count: remainingPlayers, error: countError } = await supabase
-          .from('tournament_players')
-          .select('*', { count: 'exact', head: true })
-          .eq('tournament_id', tournamentId)
+      // Check if tournament is now empty
+      const { count: remainingPlayers } = await supabase
+        .from('tournament_players')
+        .select('*', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId)
 
-        if (!countError && remainingPlayers === 0) {
-          // No players left, cancel tournament
-          console.log(`[Cleanup] Cancelling empty tournament ${tournamentId}`)
-          await supabase
-            .from('tournaments')
-            .update({
-              status: 'cancelled',
-              cancelled_at: new Date().toISOString(),
-              cancelled_reason: 'All players left'
-            })
-            .eq('id', tournamentId)
-        }
+      if (remainingPlayers === 0) {
+        console.log(`[Cleanup] Cancelling empty tournament ${tournamentId}`)
+        await supabase
+          .from('tournaments')
+          .update({
+            status: 'cancelled',
+            cancelled_reason: 'All players left tournament'
+          })
+          .eq('id', tournamentId)
       }
     }
 
-    console.log(`[Cleanup] Success! Removed from ${removedFrom.length} tournament(s)`)
-
+    console.log(`[Cleanup] Success! Removed from ${removedFrom.length} stuck tournament(s)`)
+    
     return NextResponse.json({
       success: true,
-      message: 'Player cleaned up from all tournaments',
+      message: 'Cleaned up stuck tournaments',
       removed: removedFrom.length,
       tournamentIds: removedFrom
     })

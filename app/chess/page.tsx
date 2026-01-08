@@ -34,7 +34,7 @@ export default function Chess() {
   const [loadingLogin, setLoadingLogin] = useState(false)
   const [loadingPay, setLoadingPay] = useState(false)
   const [selectedFee, setSelectedFee] = useState<number>(10)
-  const [selectedSize, setSelectedSize] = useState<number>(1)
+  const [selectedSize, setSelectedSize] = useState<number>(2)
   const [selectedAssetIndex, setSelectedAssetIndex] = useState(0)
   const [showAssetDropdown, setShowAssetDropdown] = useState(false)
   const [theme, setTheme] = useState<Theme>("light")
@@ -46,7 +46,7 @@ export default function Chess() {
   const selectedAsset = assets[selectedAssetIndex]
 
   const feeTiers = [10, 25, 50, 100]
-  const sizes = [1, 4, 8, 16]
+  const sizes = [2, 4, 8, 16]
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as Theme
@@ -60,15 +60,12 @@ export default function Chess() {
     if (savedID) {
       setPlayerID(savedID)
       
-      // Force cleanup any stuck tournament entries first
-      cleanupPlayerTournaments(savedID).then(() => {
-        // Then check if player is in a tournament
-        checkExistingTournament(savedID)
-      })
+      // ✅ Just check if player is in a tournament (no auto-cleanup)
+      checkExistingTournament(savedID)
     }
   }, [])
 
-  // Cleanup player from stuck tournaments
+  // Cleanup player from stuck tournaments (kept for logout use)
   async function cleanupPlayerTournaments(playerAddress: string) {
     try {
       console.log("🧹 Cleaning up any stuck tournament entries...")
@@ -92,11 +89,32 @@ export default function Chess() {
   // Check if player is already in a tournament
   async function checkExistingTournament(playerAddress: string) {
     try {
-      const res = await fetch(`/api/tournaments/check-player?address=${playerAddress}`)
+      console.log("🔍 Checking existing tournament for:", playerAddress)
+      
+      const { data: { session } } = await supabase.auth.getSession()
+      console.log("🔐 Current auth session:", !!session, session?.user?.id)
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      }
+      
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`
+        console.log("🔐 Adding auth header to request")
+      }
+      
+      const res = await fetch(`/api/tournaments/check-player?address=${playerAddress}`, {
+        headers
+      })
+      
+      console.log("🔍 Check player response status:", res.status)
+      
       if (res.ok) {
         const data = await res.json()
+        console.log("🔍 Check player response data:", data)
+        
         if (data.inTournament && data.tournamentId) {
-          console.log("Player already in tournament:", data.tournamentId, "Status:", data.status)
+          console.log("✅ Player already in tournament:", data.tournamentId, "Status:", data.status)
           
           setExistingTournament({
             id: data.tournamentId,
@@ -106,19 +124,23 @@ export default function Chess() {
           // Auto-redirect based on status
           if (data.status === "waiting") {
             setTimeout(() => {
-              console.log("Auto-redirecting to waiting room...")
+              console.log("🚀 Auto-redirecting to waiting room...")
               window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
             }, 1500)
           } else if (data.status === "in_progress" || data.status === "in-progress") {
             setTimeout(() => {
-              console.log("Auto-redirecting to active game...")
+              console.log("🚀 Auto-redirecting to active game...")
               window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
             }, 1500)
           }
+        } else {
+          console.log("ℹ️ No existing tournament found")
         }
+      } else {
+        console.error("❌ Check player request failed:", res.status, await res.text())
       }
     } catch (err) {
-      console.log("No existing tournament check available:", err)
+      console.error("❌ Error checking existing tournament:", err)
     }
   }
 
@@ -221,7 +243,6 @@ export default function Chess() {
             if (payloadData.account) {
               const walletAddress = payloadData.account
 
-              // ✨ NEW: Create Supabase Auth session with wallet address
               console.log("Creating Supabase session for wallet:", walletAddress)
               
               const { data: authData, error: authError } = await supabase.auth.signInAnonymously({
@@ -234,13 +255,11 @@ export default function Chess() {
 
               if (authError) {
                 console.error("Supabase auth error:", authError)
-                // Fallback: still save wallet but without session
                 setPlayerID(walletAddress)
                 localStorage.setItem("playerID", walletAddress)
                 sessionStorage.removeItem("waitingForLogin")
                 alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
               } else {
-                // Success: both wallet AND Supabase session created
                 console.log("✅ Supabase session created:", authData.session?.user.id)
                 console.log("✅ Wallet stored in metadata:", authData.session?.user.user_metadata.wallet_address)
                 
@@ -383,13 +402,22 @@ export default function Chess() {
       }
     }
     
+    // ✅ Only cleanup when explicitly logging out
+    if (playerID) {
+      console.log("🧹 Running cleanup on logout...")
+      try {
+        await cleanupPlayerTournaments(playerID)
+      } catch (err) {
+        console.error("Cleanup failed:", err)
+      }
+    }
+    
     setPlayerID(null)
     setExistingTournament(null)
     
     localStorage.removeItem("playerID")
     sessionStorage.clear()
     
-    // ✨ NEW: Sign out of Supabase Auth
     await supabase.auth.signOut()
     
     console.log("🚪 Logout complete - all state cleared")
@@ -406,7 +434,7 @@ export default function Chess() {
 
     try {
       setLoadingPay(true)
-      const memo = `Chess Tournament - ${selectedSize === 1 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} ${selectedAsset.currency}`
+      const memo = `Chess Tournament - ${selectedSize === 2 ? '1v1' : `${selectedSize} Players`} - Fee ${selectedFee} ${selectedAsset.currency}`
 
       const returnUrl = `${window.location.origin}/chess`
       
@@ -526,6 +554,33 @@ export default function Chess() {
           }
           
           try {
+            console.log("Payment signed! Validating wallet...")
+            
+            const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ uuid }),
+            })
+
+            if (!payloadRes.ok) {
+              throw new Error("Failed to get payment details")
+            }
+
+            const payloadData = await payloadRes.json()
+            const signingWallet = payloadData.account
+
+            if (!signingWallet) {
+              throw new Error("Could not determine signing wallet")
+            }
+
+            if (signingWallet !== playerID) {
+              alert(`❌ Wallet Mismatch!\n\nYou're logged in as: ${playerID.slice(0,10)}...${playerID.slice(-6)}\nBut signed payment with: ${signingWallet.slice(0,10)}...${signingWallet.slice(-6)}\n\nPlease disconnect and log in with the correct wallet.`)
+              setLoadingPay(false)
+              return
+            }
+
+            console.log("✅ Wallet validation passed:", signingWallet)
+
             const joinRes = await fetch("/api/tournaments/join", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -534,7 +589,8 @@ export default function Chess() {
                 tournamentSize: selectedSize,
                 entryFee: selectedFee,
                 currency: selectedAsset.currency,
-                issuer: selectedAsset.issuer || null
+                issuer: selectedAsset.issuer || null,
+                signingWallet: signingWallet
               })
             })
 
@@ -565,10 +621,47 @@ export default function Chess() {
             const joinData = await joinRes.json()
 
             if (joinData.success) {
-              sessionStorage.removeItem("waitingForPayment")
-              sessionStorage.removeItem("tournamentConfig")
+              const tournamentId = joinData.tournamentId
+              console.log("✅ Tournament created:", tournamentId)
+              console.log("🔍 Verifying tournament exists in database before redirect...")
               
-              window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+              // ✅ NEW: Poll database to confirm tournament exists (max 5 seconds)
+              let verified = false
+              const maxAttempts = 10
+              const delayMs = 500
+              
+              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                console.log(`🔍 Verification attempt ${attempt}/${maxAttempts}...`)
+                
+                try {
+                  const verifyRes = await fetch(`/api/tournaments/check-tournament?id=${tournamentId}`)
+                  if (verifyRes.ok) {
+                    const verifyData = await verifyRes.json()
+                    if (verifyData.exists) {
+                      console.log(`✅ Tournament verified on attempt ${attempt}!`)
+                      verified = true
+                      break
+                    }
+                  }
+                } catch (err) {
+                  console.error(`❌ Verification attempt ${attempt} failed:`, err)
+                }
+                
+                if (attempt < maxAttempts) {
+                  await new Promise(resolve => setTimeout(resolve, delayMs))
+                }
+              }
+              
+              if (verified) {
+                sessionStorage.removeItem("waitingForPayment")
+                sessionStorage.removeItem("tournamentConfig")
+                console.log("🚀 Redirecting to verified tournament...")
+                window.location.href = `/waiting-room?tournamentId=${tournamentId}`
+              } else {
+                console.error("💥 Failed to verify tournament after all attempts")
+                alert("Tournament created but verification failed. Please refresh the page or contact support.")
+                setLoadingPay(false)
+              }
             } else {
               alert("Payment successful but failed to join tournament. Contact support.")
               setLoadingPay(false)
@@ -668,12 +761,32 @@ export default function Chess() {
           console.log("Payment status:", payloadData)
           
           if (payloadData.meta?.signed === true) {
-            console.log("Payment successful, joining tournament...")
+            console.log("Payment successful, validating wallet...")
+            
+            const signingWallet = payloadData.account
+            const currentPlayerID = localStorage.getItem("playerID")
+
+            if (!signingWallet) {
+              throw new Error("Could not determine signing wallet from mobile payment")
+            }
+
+            if (signingWallet !== currentPlayerID) {
+              sessionStorage.removeItem("waitingForPayment")
+              sessionStorage.removeItem("tournamentConfig")
+              alert(`❌ Wallet Mismatch!\n\nYou're logged in as: ${currentPlayerID?.slice(0,10)}...${currentPlayerID?.slice(-6)}\nBut signed payment with: ${signingWallet.slice(0,10)}...${signingWallet.slice(-6)}\n\nPlease disconnect and log in with the correct wallet.`)
+              setLoadingPay(false)
+              return
+            }
+
+            console.log("✅ Mobile wallet validation passed:", signingWallet)
             
             const joinRes = await fetch("/api/tournaments/join", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(config)
+              body: JSON.stringify({
+                ...config,
+                signingWallet: signingWallet
+              })
             })
 
             const joinText = await joinRes.text()
@@ -705,13 +818,50 @@ export default function Chess() {
             console.log("Tournament join response:", joinData)
 
             if (joinData.success && joinData.tournamentId) {
-              sessionStorage.removeItem("waitingForPayment")
-              sessionStorage.removeItem("tournamentConfig")
+              const tournamentId = joinData.tournamentId
+              console.log("✅ Tournament created:", tournamentId)
+              console.log("🔍 Verifying tournament exists in database before redirect...")
               
-              console.log("Redirecting to waiting room:", joinData.tournamentId)
-              alert("Payment successful! Joining tournament...")
+              // ✅ NEW: Poll database to confirm tournament exists (max 5 seconds)
+              let verified = false
+              const maxAttempts = 10
+              const delayMs = 500
               
-              window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                console.log(`🔍 Mobile verification attempt ${attempt}/${maxAttempts}...`)
+                
+                try {
+                  const verifyRes = await fetch(`/api/tournaments/check-tournament?id=${tournamentId}`)
+                  if (verifyRes.ok) {
+                    const verifyData = await verifyRes.json()
+                    if (verifyData.exists) {
+                      console.log(`✅ Tournament verified on attempt ${attempt}!`)
+                      verified = true
+                      break
+                    }
+                  }
+                } catch (err) {
+                  console.error(`❌ Verification attempt ${attempt} failed:`, err)
+                }
+                
+                if (attempt < maxAttempts) {
+                  await new Promise(resolve => setTimeout(resolve, delayMs))
+                }
+              }
+              
+              if (verified) {
+                sessionStorage.removeItem("waitingForPayment")
+                sessionStorage.removeItem("tournamentConfig")
+                console.log("🚀 Redirecting to verified tournament...")
+                alert("Payment successful! Joining tournament...")
+                window.location.href = `/waiting-room?tournamentId=${tournamentId}`
+              } else {
+                console.error("💥 Failed to verify tournament after all attempts")
+                sessionStorage.removeItem("waitingForPayment")
+                sessionStorage.removeItem("tournamentConfig")
+                alert("Tournament created but verification failed. Please refresh the page or contact support.")
+                setLoadingPay(false)
+              }
             } else {
               throw new Error(joinData.error || "Failed to join tournament")
             }
@@ -848,7 +998,7 @@ export default function Chess() {
                           : "border border-border bg-muted/50 hover:bg-muted"
                       }`}
                     >
-                      {size === 1 ? "1v1" : `${size}`}
+                      {size === 2 ? "1v1" : size === 4 ? "4P" : size === 8 ? "8P" : "16P"}
                     </motion.button>
                   ))}
                 </div>

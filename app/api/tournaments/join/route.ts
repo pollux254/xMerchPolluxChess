@@ -25,12 +25,27 @@ export async function POST(request: NextRequest) {
       entryFee,
       currency,
       issuer,
+      signingWallet, // ✨ BUG FIX 1: Add signing wallet validation
     } = body
 
     if (!playerAddress || !tournamentSize || !entryFee || !currency) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
+      )
+    }
+
+    // ✨ BUG FIX 1: Server-side wallet validation
+    if (signingWallet && signingWallet !== playerAddress) {
+      console.error('[Tournament Join] Wallet mismatch:', {
+        playerAddress,
+        signingWallet
+      })
+      return NextResponse.json(
+        { 
+          error: `Wallet Mismatch: You're logged in as ${playerAddress.slice(0,10)}...${playerAddress.slice(-6)} but signed with ${signingWallet.slice(0,10)}...${signingWallet.slice(-6)}. Please disconnect and log in with the correct wallet.`
+        },
+        { status: 403 }
       )
     }
 
