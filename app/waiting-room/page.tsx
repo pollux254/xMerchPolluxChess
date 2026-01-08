@@ -237,7 +237,7 @@ function WaitingRoomContent() {
     }
   }, [tournamentId])
 
-  // ✅ Handle cancel button
+  // ✅ UPDATED: Handle cancel button with force cleanup
   const handleCancel = async () => {
     const confirmCancel = confirm("Are you sure you want to leave the waiting room?\n\nYour entry fee will be refunded.")
     if (!confirmCancel) return
@@ -246,7 +246,9 @@ function WaitingRoomContent() {
     if (!playerID) return
     
     try {
-      // Request refund
+      console.log("🚪 Player cancelling from waiting room...")
+      
+      // 1. Request refund
       await fetch('/api/tournaments/refund', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -257,7 +259,7 @@ function WaitingRoomContent() {
         })
       })
       
-      // Leave tournament
+      // 2. Leave tournament
       await fetch('/api/tournaments/leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -267,11 +269,30 @@ function WaitingRoomContent() {
         })
       })
       
+      // 3. ✅ NEW: Force cleanup to remove any stuck entries
+      console.log("🧹 Running cleanup after cancel...")
+      await fetch('/api/tournaments/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerAddress: playerID
+        })
+      })
+      
+      // 4. ✅ NEW: Clear any cached state
+      sessionStorage.clear()
+      
+      // 5. ✅ NEW: Small delay to ensure DB writes complete
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      console.log("✅ Cancel complete, redirecting to lobby...")
       alert("✅ Left waiting room. Your entry fee will be refunded.")
+      
+      // 6. Redirect to chess
       window.location.href = '/chess'
     } catch (err) {
       console.error("Cancel error:", err)
-      alert("Failed to leave waiting room. Please try again.")
+      alert("Failed to leave waiting room. Please try logging out and back in.")
     }
   }
 
@@ -420,7 +441,7 @@ function WaitingRoomContent() {
           </div>
         </div>
 
-        {/* ✅ NEW: Cancel Button with Refund */}
+        {/* ✅ UPDATED: Cancel Button with Force Cleanup */}
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
