@@ -5,6 +5,10 @@ import { useSearchParams } from "next/navigation"
 import { createClient } from "@supabase/supabase-js"
 import { motion } from "framer-motion"
 
+// Hook state (Phase 1): optional read for debugging/verification.
+// This does NOT affect the existing Supabase-based waiting room.
+import { getWaitingRoomState } from "@/lib/xahau-hooks"
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
@@ -17,6 +21,8 @@ function WaitingRoomContent() {
   const [loading, setLoading] = useState(true)
   const [loadingMessage, setLoadingMessage] = useState("Loading tournament...")
   const [timeRemaining, setTimeRemaining] = useState<number>(600) // 10 minutes in seconds
+
+  const [hookWaitingRoom, setHookWaitingRoom] = useState<any>(null)
 
   useEffect(() => {
     if (!tournamentId) {
@@ -110,6 +116,20 @@ function WaitingRoomContent() {
 
     fetchTournament()
     fetchPlayers()
+
+    // Optional: read Hook waiting room namespace if Hook address is configured.
+    // This is useful to verify the Hook is deployed and state can be read.
+    ;(async () => {
+      const hookAddress = process.env.NEXT_PUBLIC_HOOK_ADDRESS
+      if (!hookAddress) return
+
+      try {
+        const resp = await getWaitingRoomState()
+        setHookWaitingRoom(resp)
+      } catch (err) {
+        console.warn("Hook waiting room read failed (non-fatal):", err)
+      }
+    })()
 
     // ✨ 10-minute countdown timer
     const countdownInterval = setInterval(() => {
@@ -377,6 +397,16 @@ function WaitingRoomContent() {
             <p className="text-xl text-gray-300">Prize Pool</p>
           </div>
         </div>
+
+        {/* Phase 1 debug: Hook state snapshot (hidden unless available) */}
+        {hookWaitingRoom && (
+          <div className="bg-gray-900/40 backdrop-blur rounded-2xl p-4 mb-6 border border-purple-500/20">
+            <p className="text-sm text-purple-200 mb-2">🪝 Hook waiting room state (debug)</p>
+            <pre className="text-xs overflow-auto max-h-40 text-gray-200">
+              {JSON.stringify(hookWaitingRoom, null, 2)}
+            </pre>
+          </div>
+        )}
 
         <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-purple-500/40 mb-8">
           <h2 className="text-4xl font-bold mb-6 text-center">

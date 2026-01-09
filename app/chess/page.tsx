@@ -6,6 +6,10 @@ import { Moon, Sun, Monitor, LogOut } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@supabase/supabase-js"
 
+// Hook integration (Phase 1: UI placeholder)
+// TODO: Wire this to the wallet-connect flow (getConnectedWallet)
+// import { joinTournamentHook } from "@/lib/xahau-hooks"
+
 type Theme = "light" | "middle" | "dark"
 
 type Asset = {
@@ -703,6 +707,32 @@ export default function Chess() {
     }
   }
 
+  // Phase 1 placeholder: Hook-based tournament join
+  async function handlePayFeeHook() {
+    if (!playerID) {
+      alert("Please connect your wallet first!")
+      return
+    }
+
+    try {
+      setLoadingPay(true)
+
+      // TODO: Get wallet instance (needs wallet connect integration)
+      // const wallet = await getConnectedWallet()
+
+      // Join tournament via Hook
+      // const result = await joinTournamentHook(wallet, selectedFee)
+      // console.log("Hook join result:", result)
+
+      alert("⚠️ Hook integration coming soon! Use standard payment for now.")
+    } catch (err) {
+      console.error("Hook payment error:", err)
+      alert("Failed to join via Hook. Try again.")
+    } finally {
+      setLoadingPay(false)
+    }
+  }
+
   // ✅ UPDATED: Mobile return handler with longer waits and more retries
   useEffect(() => {
     console.log("Chess page loaded - checking for mobile return...")
@@ -1067,6 +1097,17 @@ export default function Chess() {
                 className="w-full rounded-2xl bg-primary py-6 font-bold text-primary-foreground text-xl shadow-2xl hover:shadow-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {loadingPay ? "Processing..." : `Pay ${selectedFee} ${selectedAsset.currency} → Enter Tournament`}
+              </motion.button>
+
+              {/* Hook-based entry (Phase 1: placeholder, non-breaking) */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={loadingPay}
+                onClick={handlePayFeeHook}
+                className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-6 font-bold text-white text-xl shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} XAH)`}
               </motion.button>
 
               <div className="text-center text-muted-foreground font-medium my-2">Or</div>
