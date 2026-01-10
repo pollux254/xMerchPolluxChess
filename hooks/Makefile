@@ -20,7 +20,7 @@ LDFLAGS = -O3 --no-entry --import-undefined --export-dynamic \
           -L$(HOOK_TOOLCHAIN)/lib
 
 # Source files
-SOURCES = chess-wagering.c chess-logic.c
+SOURCES = chess-wagering.c chess-engine.c
 TARGET = chess-wagering.wasm
 
 # Default target
@@ -31,8 +31,8 @@ all: $(TARGET)
 $(TARGET): $(SOURCES)
 	@echo "🔨 Compiling Hook to WebAssembly..."
 	$(CLANG) $(CFLAGS) -c chess-wagering.c -o chess-wagering.o
-	$(CLANG) $(CFLAGS) -c chess-logic.c -o chess-logic.o
-	$(WASM_LD) $(LDFLAGS) chess-wagering.o chess-logic.o -o $(TARGET)
+	$(CLANG) $(CFLAGS) -c chess-engine.c -o chess-engine.o
+	$(WASM_LD) $(LDFLAGS) chess-wagering.o chess-engine.o -o $(TARGET)
 	@echo "✅ Hook compiled successfully: $(TARGET)"
 	@ls -la $(TARGET)
 
