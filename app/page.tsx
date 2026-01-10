@@ -1,449 +1,344 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
+import { Moon, Sun, Monitor, ChevronDown, ChevronUp } from "lucide-react"
+import Link from "next/link"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+type Theme = "light" | "middle" | "dark"
 
-function WaitingRoomContent() {
-  const searchParams = useSearchParams()
-  const tournamentId = searchParams.get("tournamentId")
-  
-  const [tournament, setTournament] = useState<any>(null)
-  const [players, setPlayers] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadingMessage, setLoadingMessage] = useState("Loading tournament...")
-  const [timeRemaining, setTimeRemaining] = useState<number>(600)
+export default function Home() {
+  const [selected, setSelected] = useState<number>(10)
+  const [loading, setLoading] = useState(false)
+  const [theme, setTheme] = useState<Theme>("light")
+  const [isFAQOpen, setIsFAQOpen] = useState(false)
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
+
+  const donationTiers = [100, 500, 1000]
 
   useEffect(() => {
-    if (!tournamentId) {
-      alert("No tournament ID provided")
-      window.location.href = "/chess"
-      return
+    const savedTheme = localStorage.getItem("theme") as Theme
+    if (savedTheme) {
+      setTheme(savedTheme)
+      document.documentElement.classList.remove("light", "middle", "dark")
+      document.documentElement.classList.add(savedTheme)
     }
+  }, [])
 
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'playerID' && e.newValue === null) {
-        console.log("🚪 Player logged out detected - leaving waiting room")
-        alert("You've been logged out. Returning to lobby...")
-        window.location.href = "/chess"
-      }
-    }
+  const setThemeValue = (newTheme: Theme) => {
+    setTheme(newTheme)
+    document.documentElement.classList.remove("light", "middle", "dark")
+    document.documentElement.classList.add(newTheme)
+    localStorage.setItem("theme", newTheme)
+  }
 
-    const checkPlayerStatus = () => {
-      const playerID = localStorage.getItem('playerID')
-      if (!playerID) {
-        console.log("🚪 No player ID found - redirecting to lobby")
-        window.location.href = "/chess"
-      }
-    }
-
-    checkPlayerStatus()
-    window.addEventListener('storage', handleStorageChange)
-    
-    const statusCheckInterval = setInterval(checkPlayerStatus, 2000)
-
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    async function fetchTournament() {
-      setLoadingMessage("Loading tournament...")
-      
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const maxAttempts = 5
-      
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        console.log(`🔍 Waiting room: Attempt ${attempt}/${maxAttempts} to fetch tournament ${tournamentId}`)
-        
-        const { data, error } = await supabase
-          .from("tournaments")
-          .select("*")
-          .eq("id", tournamentId)
-          .single()
-
-        if (!error && data) {
-          console.log(`✅ SUCCESS on attempt ${attempt}! Tournament loaded:`, data.id)
-          setTournament(data)
-          setLoading(false)
-          return
-        }
-        
-        console.error(`❌ Attempt ${attempt} failed:`, error?.message || 'Unknown error')
-        
-        if (attempt < maxAttempts) {
-          setLoadingMessage(`Retrying... (${attempt}/${maxAttempts})`)
-          await new Promise(resolve => setTimeout(resolve, 2000))
-        }
-      }
-      
-      console.error("💥 All attempts failed - Tournament not found")
-      setLoadingMessage("Tournament not found")
-      setLoading(false)
-      
-      alert("⚠️ Tournament could not be loaded.\n\nThis tournament may have been cancelled.\n\nPlease use the button below to return to the lobby.")
-    }
-
-    async function fetchPlayers() {
-      const { data, error } = await supabase
-        .from("tournament_players")
-        .select("*")
-        .eq("tournament_id", tournamentId)
-        .order("player_order", { ascending: true })
-
-      if (error) {
-        console.error("Error fetching players:", error)
-        return
-      }
-
-      setPlayers(data || [])
-    }
-
-    fetchTournament()
-    fetchPlayers()
-
-    const countdownInterval = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-
-    const timeoutDuration = 10 * 60 * 1000
-    const timeoutTimer = setTimeout(async () => {
-      const playerID = localStorage.getItem('playerID')
-      if (!playerID) return
-
-      const { data: currentTournament } = await supabase
-        .from('tournaments')
-        .select('status')
-        .eq('id', tournamentId)
-        .single()
-
-      if (currentTournament?.status !== 'waiting') {
-        console.log('⏰ Tournament already started or finished - no timeout')
-        return
-      }
-
-      console.log('⏰ Waiting room timeout - requesting refund and leaving')
-      
-      try {
-        const refundRes = await fetch('/api/tournaments/refund', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playerAddress: playerID,
-            tournamentId: tournamentId,
-            reason: 'Waiting room timeout (10 minutes)'
-          })
-        })
-
-        if (refundRes.ok) {
-          alert('⏰ No match found after 10 minutes. Your entry fee has been refunded!\n\nYou can try joining again.')
-        } else {
-          alert('⏰ No match found after 10 minutes. Please contact support for refund.')
-        }
-      } catch (err) {
-        console.error('Refund request failed:', err)
-        alert('⏰ Timeout reached. Please contact support for refund if needed.')
-      }
-
-      try {
-        await fetch('/api/tournaments/leave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playerAddress: playerID,
-            tournamentId: tournamentId
-          })
-        })
-      } catch (err) {
-        console.error('Failed to leave tournament:', err)
-      }
-
-      window.location.href = '/chess'
-    }, timeoutDuration)
-
-    const tournamentsChannel = supabase
-      .channel(`tournament-${tournamentId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "tournaments",
-          filter: `id=eq.${tournamentId}`,
-        },
-        (payload: any) => {
-          console.log("Tournament updated:", payload)
-          if (payload.new) {
-            setTournament(payload.new)
-            
-            if (payload.new.status === "in_progress") {
-              clearTimeout(timeoutTimer)
-              clearInterval(countdownInterval)
-              setTimeout(() => {
-                window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-              }, 2000)
-            }
-          }
-        }
-      )
-      .subscribe()
-
-    const playersChannel = supabase
-      .channel(`tournament-players-${tournamentId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "tournament_players",
-          filter: `tournament_id=eq.${tournamentId}`,
-        },
-        (payload: any) => {
-          console.log("Players updated:", payload)
-          fetchPlayers()
-        }
-      )
-      .subscribe()
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      clearInterval(statusCheckInterval)
-      clearTimeout(timeoutTimer)
-      clearInterval(countdownInterval)
-      supabase.removeChannel(tournamentsChannel)
-      supabase.removeChannel(playersChannel)
-    }
-  }, [tournamentId])
-
-  const handleCancel = async () => {
-    const confirmCancel = confirm("Are you sure you want to leave the waiting room?\n\nYour entry fee will be refunded.")
-    if (!confirmCancel) return
-    
-    const playerID = localStorage.getItem('playerID')
-    if (!playerID) return
-    
+  async function handleDonate() {
     try {
-      console.log("🚪 Player cancelling from waiting room...")
-      
-      await fetch('/api/tournaments/refund', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerAddress: playerID,
-          tournamentId: tournamentId,
-          reason: 'Player cancelled from waiting room'
-        })
+      setLoading(true)
+
+      const res = await fetch("/api/auth/xaman/create-payload/xahau-payload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: selected }),
       })
-      
-      await fetch('/api/tournaments/leave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerAddress: playerID,
-          tournamentId: tournamentId
-        })
-      })
-      
-      console.log("🧹 Running cleanup after cancel...")
-      await fetch('/api/tournaments/cleanup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerAddress: playerID
-        })
-      })
-      
-      sessionStorage.clear()
-      
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      console.log("✅ Cancel complete, redirecting to lobby...")
-      alert("✅ Left waiting room. Your entry fee will be refunded.")
-      
-      window.location.href = '/chess'
+
+      if (!res.ok) {
+        console.error("Failed to create payload:", await res.text())
+        alert("Error preparing transaction.")
+        return
+      }
+
+      const data = await res.json()
+      const nextUrl = data?.nextUrl
+      if (nextUrl) {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+        if (isMobile) window.location.href = nextUrl
+        else window.open(nextUrl, "_blank")
+      } else {
+        alert("Missing Xaman redirect URL")
+      }
     } catch (err) {
-      console.error("Cancel error:", err)
-      alert("Failed to leave waiting room. Please try logging out and back in.")
+      console.error("Donation error:", err)
+      alert("Donation failed. Check console.")
+    } finally {
+      setLoading(false)
     }
   }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900/30 to-purple-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-32 h-32 border-8 border-purple-500/60 rounded-full flex items-center justify-center mx-auto mb-10 animate-spin">
-            <span className="text-5xl">♟️</span>
-          </div>
-          <p className="text-4xl font-bold text-white mb-4">{loadingMessage}</p>
-          <p className="text-lg text-purple-300">Setting up your tournament...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!tournament) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900/30 to-purple-900 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto px-6">
-          <p className="text-4xl font-bold text-red-400 mb-4">❌ Tournament Not Found</p>
-          <p className="text-lg text-gray-300 mb-8">This tournament may have been cancelled or does not exist.</p>
-          
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => window.location.href = '/chess'}
-            className="rounded-2xl bg-primary px-8 py-4 font-bold text-primary-foreground text-lg shadow-xl hover:opacity-90 transition-all"
-          >
-            ← Return to Lobby
-          </motion.button>
-        </div>
-      </div>
-    )
-  }
-
-  const playerCount = players.length
-  const tournamentSize = tournament.tournament_size
-  const spotsRemaining = tournamentSize - playerCount
-  const isFull = playerCount >= tournamentSize
-
-  const minutes = Math.floor(timeRemaining / 60)
-  const seconds = timeRemaining % 60
-  const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex flex-col items-center justify-center px-6 py-12">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-2xl"
-      >
-        <h1 className="text-6xl md:text-7xl font-black text-center mb-8 bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 bg-clip-text text-transparent">
-          Tournament Lobby
-        </h1>
+    <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col">
+      {/* Theme Switcher */}
+      <div className="fixed top-4 left-4 md:top-6 md:right-6 md:left-auto z-50 flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
+        <button
+          onClick={() => setThemeValue("light")}
+          className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="Light theme"
+        >
+          <Sun className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setThemeValue("middle")}
+          className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="System theme"
+        >
+          <Monitor className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setThemeValue("dark")}
+          className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="Dark theme"
+        >
+          <Moon className="h-5 w-5" />
+        </button>
+      </div>
 
-        <div className="bg-orange-900/30 backdrop-blur-xl rounded-2xl p-6 mb-6 border border-orange-500/40 text-center">
-          <p className="text-sm text-orange-300 mb-2">Auto-leave and refund in:</p>
-          <p className={`text-5xl font-black ${timeRemaining < 60 ? 'text-red-400 animate-pulse' : 'text-orange-400'}`}>
-            {timeString}
-          </p>
-          <p className="text-xs text-orange-300/70 mt-2">
-            If no match is found within 10 minutes, you'll be automatically refunded
-          </p>
-        </div>
-
-        <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-purple-500/40 mb-8">
-          <div className="text-center space-y-4">
-            <p className="text-3xl font-bold text-emerald-400">
-              {tournament.entry_fee} {tournament.currency}
-            </p>
-            <p className="text-xl text-gray-300">Entry Fee</p>
-            
-            <div className="h-1 bg-gradient-to-r from-cyan-400 to-purple-600 rounded-full my-6"></div>
-            
-            <p className="text-5xl font-black text-yellow-400">
-              {tournament.prize_pool} {tournament.currency}
-            </p>
-            <p className="text-xl text-gray-300">Prize Pool</p>
-          </div>
-        </div>
-
-        <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-purple-500/40 mb-8">
-          <h2 className="text-4xl font-bold mb-6 text-center">
-            {isFull ? "Tournament Starting!" : "Waiting for Players..."}
-          </h2>
-          
-          <div className="text-center mb-8">
-            <p className="text-7xl font-black text-cyan-400">
-              {playerCount} / {tournamentSize}
-            </p>
-            <p className="text-2xl text-gray-300 mt-2">
-              {isFull ? "All players ready!" : `${spotsRemaining} spot${spotsRemaining !== 1 ? 's' : ''} remaining`}
-            </p>
-          </div>
-
-          {isFull && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="text-center"
+      {/* Hero Section - Full viewport on all screens, no scrolling required on ≥768px */}
+      <section className="relative flex-1 flex flex-col justify-center items-center px-6 py-20 md:py-0 overflow-hidden bg-gradient-to-b from-background via-muted/20 to-background min-h-screen md:min-h-0 md:h-screen">
+        <div className="absolute inset-0 bg-grid-muted/10 pointer-events-none" />
+        <div className="relative max-w-5xl mx-auto text-center z-10">
+          <motion.h1
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            className="text-5xl md:text-7xl lg:text-8xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent leading-tight"
+          >
+            POLLUX'S CHESS
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="mt-4 md:mt-6 text-2xl md:text-4xl lg:text-5xl font-semibold text-foreground"
+          >
+            Strategy Meets Finance on Xahau
+          </motion.p>
+          <motion.p
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.4 }}
+            className="mt-6 text-lg md:text-xl lg:text-2xl max-w-3xl mx-auto text-muted-foreground leading-relaxed"
+          >
+            World's first skill-based multiplayer chess wager platform — compete trustlessly for real pots on the Xahau network.
+          </motion.p>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.6 }}
+            className="mt-10 md:mt-12 flex flex-col md:flex-row gap-6 justify-center items-center"
+          >
+            <Link href="/chess" className="w-full md:w-auto max-w-xs md:max-w-none">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-full px-12 py-6 text-2xl md:text-3xl font-bold rounded-2xl bg-primary text-primary-foreground shadow-2xl hover:shadow-primary/30 transition-shadow"
+              >
+                ♟️ Play & Wager Now
+              </motion.button>
+            </Link>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsModalOpen(true)}
+              className="px-10 py-5 text-lg md:text-xl font-medium rounded-2xl border-2 border-primary bg-transparent hover:bg-primary/10 transition-colors"
             >
-              <p className="text-3xl font-bold text-emerald-400 animate-pulse">
-                Starting game in 2 seconds...
-              </p>
+              Support the Protocol
+            </motion.button>
+          </motion.div>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1 }}
+            className="mt-8 md:mt-12 text-sm md:text-base text-muted-foreground"
+          >
+            Powered by xMerch • Trustless on Xahau Network
+          </motion.p>
+        </div>
+      </section>
+
+      {/* Below-the-Fold Content - Only visible after scrolling on desktop (≥768px) */}
+      <div className="w-full bg-muted/10">
+        {/* Important Notice */}
+        <section className="max-w-4xl mx-auto px-6 py-16">
+          <div className="rounded-2xl border border-red-600/40 bg-red-900/20 p-10 text-center backdrop-blur-sm">
+            <h2 className="text-3xl font-bold mb-6">Important Notice</h2>
+            <p className="text-lg leading-relaxed">
+              External platforms like XPMarket, NFTCafe, and Magnetic are not affiliated with POLLUX'S CHESS. 
+              Activities such as AMM, swaps, NFT trading, or token purchases occur at your own risk. 
+              POLLUX'S CHESS is a skill-based chess tournament platform and does not offer or endorse investment or financial services. 
+              Please do your own research before participating.
+            </p>
+          </div>
+        </section>
+
+        {/* FAQ Accordion */}
+        <section className="max-w-4xl mx-auto px-6 py-12">
+          <button
+            onClick={() => setIsFAQOpen(!isFAQOpen)}
+            className="w-full bg-primary/90 hover:bg-primary text-primary-foreground font-bold py-6 px-8 rounded-2xl flex items-center justify-between text-2xl shadow-lg transition-colors"
+          >
+            FAQ
+            {isFAQOpen ? <ChevronUp className="h-8 w-8" /> : <ChevronDown className="h-8 w-8" />}
+          </button>
+
+          {isFAQOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mt-4 rounded-2xl border border-border bg-card/80 backdrop-blur-sm p-10 space-y-8 shadow-xl"
+            >
+              <div>
+                <h3 className="font-bold text-xl">Which wallets can I use?</h3>
+                <p className="text-muted-foreground mt-2">Only Xaman is available for now — your wallet serves as your Player ID.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">How does the tournament work?</h3>
+                <p className="text-muted-foreground mt-2">Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2–16 players), pay the entry fee to join the queue. Once full, bracket matches begin. Winner takes 90% of the pot (10% platform fee). 20-minute default timer.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">How does the NFT prize work?</h3>
+                <p className="text-muted-foreground mt-2">Optional NFT deposits — winner receives all deposited NFTs. If none awarded, NFTs are returned.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">When does the timer start?</h3>
+                <p className="text-muted-foreground mt-2">After White's first move. Default 20 minutes per game.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">What happens if I disconnect?</h3>
+                <p className="text-muted-foreground mt-2">Session recoverable during active tournament. Timer continues.</p>
+              </div>
+              <div>
+                <h3 className="font-bold text-xl">What about external platforms?</h3>
+                <p className="text-muted-foreground mt-2">Links provided for convenience only — all external activity at your own risk.</p>
+              </div>
             </motion.div>
           )}
-        </div>
+        </section>
 
-        <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-10 shadow-2xl border border-purple-500/40 mb-6">
-          <h3 className="text-3xl font-bold mb-6">Players Joined:</h3>
-          <div className="space-y-3">
-            {players.map((player, index) => (
-              <motion.div
-                key={player.id}
-                initial={{ x: -50, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-gray-700/50 rounded-xl p-4 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="text-3xl font-bold text-cyan-400">#{player.player_order}</span>
-                  <span className="font-mono text-lg">
-                    {player.player_address.slice(0, 10)}...{player.player_address.slice(-6)}
-                  </span>
-                </div>
-                <span className="text-2xl">♟️</span>
-              </motion.div>
-            ))}
-            
-            {Array.from({ length: spotsRemaining }).map((_, index) => (
-              <div
-                key={`empty-${index}`}
-                className="bg-gray-700/20 rounded-xl p-4 flex items-center justify-between opacity-50"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="text-3xl font-bold text-gray-500">#{playerCount + index + 1}</span>
-                  <span className="text-lg text-gray-500">Waiting...</span>
-                </div>
-                <span className="text-2xl opacity-30">♟️</span>
+        {/* External Platforms */}
+        <section className="max-w-5xl mx-auto px-6 py-16">
+          <h2 className="text-3xl font-bold text-center mb-12">Explore the Ecosystem</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <a href="https://xpmarket.com/token/PLX-rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q" target="_blank" rel="noopener noreferrer" className="group">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+                <p className="text-xl font-semibold group-hover:text-primary transition-colors">PLX AMM at XPMarket</p>
               </div>
-            ))}
+            </a>
+            <a href="https://xrp.cafe/collection/polluxoriginal" target="_blank" rel="noopener noreferrer" className="group">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+                <p className="text-xl font-semibold group-hover:text-primary transition-colors">Visit PLX on NFTCafe</p>
+              </div>
+            </a>
+            <a href="https://www.xmagnetic.org/dex/PLX%2BrGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q_XRP%2BXRP?network=mainnet" target="_blank" rel="noopener noreferrer" className="group">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+                <p className="text-xl font-semibold group-hover:text-primary transition-colors">Trade $PLX on Magnetic</p>
+              </div>
+            </a>
           </div>
-        </div>
+        </section>
 
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleCancel}
-          className="w-full rounded-2xl bg-red-600/90 hover:bg-red-700 py-5 font-bold text-white text-lg shadow-xl transition-all"
-        >
-          ❌ Cancel & Get Refund
-        </motion.button>
-      </motion.div>
-    </div>
-  )
-}
-
-export default function WaitingRoom() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-indigo-900/30 to-purple-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-32 h-32 border-8 border-purple-500/60 rounded-full flex items-center justify-center mx-auto mb-10 animate-spin">
-            <span className="text-5xl">♟️</span>
+        {/* Social Links */}
+        <section className="max-w-4xl mx-auto px-6 py-16 text-center pb-24">
+          <p className="text-xl text-muted-foreground mb-8">Follow the journey</p>
+          <div className="flex justify-center gap-12 text-lg">
+            <a href="https://x.com/pollux2789" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              X: @pollux2789
+            </a>
+            <a href="https://t.me/plx589" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              Telegram: @plx589
+            </a>
+            <a href="https://tiktok.com/@p0llux11" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              TikTok: @p0llux11
+            </a>
           </div>
-          <p className="text-4xl font-bold text-white">Redirecting to waiting room, please wait...</p>
-        </div>
+        </section>
       </div>
-    }>
-      <WaitingRoomContent />
-    </Suspense>
+
+      {/* Donation Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="relative w-full max-w-md rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-10 shadow-2xl"
+          >
+            <button
+              onClick={() => setIsModalOpen(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Close modal"
+            >
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <div className="text-center mb-8">
+              <h1 className="text-2xl font-bold">Donate to xBase</h1>
+              <p className="mt-2 text-muted-foreground">Support open-source development on Xahau</p>
+            </div>
+
+            <div className="flex flex-col gap-6">
+              <div className="grid grid-cols-3 gap-4">
+                {donationTiers.map((tier) => (
+                  <motion.button
+                    key={tier}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setSelected(tier)}
+                    className={`rounded-xl py-4 font-semibold transition-all ${
+                      selected === tier
+                        ? "bg-primary text-primary-foreground shadow-lg"
+                        : "border border-border bg-muted/50 hover:bg-muted"
+                    }`}
+                  >
+                    {tier} XAH
+                  </motion.button>
+                ))}
+              </div>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={loading}
+                onClick={handleDonate}
+                className="w-full rounded-xl bg-primary py-5 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              >
+                {loading ? "Preparing..." : `Donate ${selected} XAH via Xaman`}
+              </motion.button>
+            </div>
+
+            <p className="mt-8 text-center text-sm text-muted-foreground">
+              Powered by{" "}
+              <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">
+                xMerch
+              </a>
+            </p>
+
+            <div className="mt-6 flex justify-center gap-8">
+              <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="6" width="18" height="13" rx="2" />
+                  <path d="M3 10h18" />
+                  <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
+                </svg>
+              </a>
+              <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="5" cy="19" r="2" />
+                  <circle cx="19" cy="19" r="2" />
+                  <path d="M12 7v4m0 0l-5 6m5-6l5 6" />
+                </svg>
+              </a>
+              <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
+                </svg>
+              </a>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
   )
 }
