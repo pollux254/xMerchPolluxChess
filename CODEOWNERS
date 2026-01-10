@@ -1,1 +1,16 @@
-* @mworks-proj
+# Critical files - DO NOT MODIFY without explicit permission
+
+# Core Pages (routing structure)
+/app/page.tsx @pollux254
+/app/chess/page.tsx @pollux254
+/app/waiting-room/page.tsx @pollux254
+/app/gamechessboard/page.tsx @pollux254
+
+# Configuration
+/.env.local @pollux254
+/.env.deploy @pollux254
+/next.config.ts @pollux254
+
+# Core Libraries
+/lib/xahau-hooks.ts @pollux254
+/lib/xahau-payload.ts @pollux254

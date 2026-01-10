@@ -1,45 +1,39 @@
-# Xahau Chess Wagering Hook
+# 🪝 Chess Wagering Hook
 
-This directory contains the Xahau Hook code for the chess wagering system.
+## ⚠️ Development Status
+**Phase 1:** Hook integration functions complete
+**Phase 2:** C code implementation (in progress)
 
-## Overview
+## 📁 Files in This Directory
 
-The chess wagering Hook handles:
-- 1v1 tournament entry payments (10 XAH)
-- Waiting room management
-- Chess move validation
-- Prize distribution (85% to winner, 15% rake)
-- Game timeouts and forfeits
+- `README.md` - This file
+- `chess-wagering.c` - Main Hook code (skeleton)
+- `Makefile` - Compilation instructions (future)
 
-## Files
+## 🛠️ Safe to Modify
 
-- `chess-wagering.c` - Main Hook implementation
-- `chess-logic.c` - Chess move validation logic
-- `Makefile` - Compilation instructions
-- `deploy-hook.sh` - Deployment script
+✅ **YES - Modify freely:**
+- `chess-wagering.c` - Hook logic
+- `Makefile` - Build config
+- This `README.md`
 
-## Quick Start
+❌ **NO - Do not modify:**
+- Files in `app/` (routing structure)
+- Core pages (`app/page.tsx`, etc.)
 
-1. Install Hook development tools
-2. Compile: `make chess-wagering.wasm`
-3. Deploy: `./deploy-hook.sh`
-4. Update frontend with Hook address
+## 🔗 Related Files
 
-See `../docs/HOOK_DEPLOYMENT.md` for detailed instructions.
+Hook integration functions are in:
+- `lib/xahau-hooks.ts` - Frontend Hook calls
 
-## State Structure
+## 📋 Next Steps
 
-The Hook uses these namespace keys:
-- `0x01` - Active games
-- `0x02` - Waiting room
-- `0x03` - Player profiles
-- `0xFF` - Global statistics
+1. Implement chess validation in `chess-wagering.c`
+2. Add move validation logic
+3. Implement prize distribution
+4. Test on Xahau testnet
+5. Deploy to mainnet
 
-## Transaction Flow
+---
 
-1. Player sends 10 XAH payment with JOIN memo
-2. Hook adds player to waiting room
-3. When 2 players ready, game starts
-4. Players submit moves via Invoke transactions
-5. Hook validates moves and updates board
-6. On game end, Hook distributes prizes automatically
+See `PROJECT_STRUCTURE.md` for full project layout.
