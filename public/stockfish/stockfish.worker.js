@@ -11,6 +11,14 @@
   /** @type {string[]} */
   const queue = [];
 
+  // Save pre-import handler so we can tell whether stockfish.js installed its own.
+  const preImportOnMessage = self.onmessage;
+
+  // Detect if the imported stockfish.js is a "standalone worker" build.
+  // In that case, it will use self.onmessage/postMessage directly and will NOT
+  // expose a Stockfish()/STOCKFISH() constructor for us to call.
+  let detectedStandaloneWorker = false;
+
   function nowMs() {
     return Date.now() - startedAt;
   }
@@ -101,6 +109,29 @@
     }
   }
 
+  // IMPORTANT: stockfish.js may be a standalone worker that calls global postMessage.
+  // We wrap postMessage to mirror any outbound string as a structured `{type:'sf'}`
+  // message for the main thread and to log it.
+  const _origPostMessage = self.postMessage.bind(self);
+  self.postMessage = (msg, transfer) => {
+    try {
+      // Stockfish UCI output usually goes out as string lines.
+      if (typeof msg === 'string') {
+        console.log('[Worker] <<', msg);
+        emitSfLine(msg);
+      } else if (msg && typeof msg === 'object' && typeof msg.data === 'string') {
+        // Some builds might post { data: "..." }
+        console.log('[Worker] <<', msg.data);
+        emitSfLine(msg.data);
+      }
+    } catch {
+      // ignore
+    }
+    // Always forward the original message too.
+    // @ts-ignore
+    return _origPostMessage(msg, transfer);
+  };
+
   function setupSfListeners(instance) {
     status('Setting up message handlers...', {
       hasOnMessage: instance && typeof instance.onmessage !== 'undefined',
@@ -137,6 +168,14 @@
   }
 
   function sendToSf(cmd) {
+    // Standalone worker mode: stockfish.js handles messages via its own worker
+    // message handler (self.onmessage or addEventListener). We should NOT queue
+    // or block messages; just let them pass through.
+    if (!sf && detectedStandaloneWorker) {
+      status('Standalone-worker mode: letting Stockfish worker handle command', cmd);
+      return;
+    }
+
     if (!sf) {
       status('Queueing command (stockfish not ready): ' + cmd);
       queue.push(cmd);
@@ -160,13 +199,14 @@
     }
   }
 
-  self.onmessage = (e) => {
+  // Use addEventListener so we don't clobber the handler that stockfish.js may set.
+  self.addEventListener('message', (e) => {
     const raw = e?.data;
     const cmd = typeof raw === 'string' ? raw : raw?.cmd;
     status('Received command from main thread', { rawType: typeof raw, cmd, raw });
     if (typeof cmd === 'string') sendToSf(cmd);
     else warn('Ignoring non-string, non-{cmd} message from main thread', raw);
-  };
+  });
 
   self.onerror = (err) => {
     fail('Worker error event', err);
@@ -193,6 +233,15 @@
   }
 
   status('Available globals after import', listInterestingGlobals());
+
+  // If stockfish.js installed an onmessage handler, we treat it as a strong
+  // signal that this is a standalone-worker build.
+  if (typeof self.onmessage === 'function' && self.onmessage !== preImportOnMessage) {
+    detectedStandaloneWorker = true;
+    status('Detected standalone-worker Stockfish build (self.onmessage changed after import)', {
+      note: 'In this mode, we do NOT call Stockfish() constructor. Messages should be handled internally by stockfish.js.',
+    });
+  }
 
   // Try multiple initialization methods; record which one works.
   const attempts = [];
@@ -226,25 +275,35 @@
       attempt('Method 3: Using Module.Stockfish() constructor', () => self.Module.Stockfish()));
 
   if (!sf) {
-    fail('ERROR: No Stockfish constructor found!', {
+    if (!detectedStandaloneWorker) {
+      fail('ERROR: No Stockfish constructor found!', {
+        attempts,
+        globals: listInterestingGlobals(),
+      });
+      return;
+    }
+
+    // Standalone worker mode: no constructor needed.
+    status('Standalone-worker mode: no constructor found (expected). Continuing.', {
       attempts,
-      globals: listInterestingGlobals(),
     });
-    return;
   }
 
-  status('Stockfish instance created', {
-    instanceType: typeof sf,
-    hasPostMessage: sf && typeof sf.postMessage === 'function',
-    hasOnMessage: sf && typeof sf.onmessage !== 'undefined',
-    hasAddMessageListener: sf && typeof sf.addMessageListener === 'function',
-  });
+  if (sf) {
+    status('Stockfish instance created', {
+      instanceType: typeof sf,
+      hasPostMessage: sf && typeof sf.postMessage === 'function',
+      hasOnMessage: sf && typeof sf.onmessage !== 'undefined',
+      hasAddMessageListener: sf && typeof sf.addMessageListener === 'function',
+    });
 
-  setupSfListeners(sf);
+    setupSfListeners(sf);
+  }
 
   // Signal readiness to the main thread.
   status('========== WORKER READY ==========', {
     note: 'This only confirms the wrapper initialized. UCI init depends on wasm load + Stockfish responding.',
+    standalone: detectedStandaloneWorker,
   });
   try {
     postMessage({ type: 'ready', t: nowMs() });
