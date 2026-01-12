@@ -36,8 +36,8 @@
       // ignore
     }
     try {
-      // Visible in main thread
-      postMessage(payload);
+      // Visible in main thread (use ORIGINAL postMessage to avoid feedback loops)
+      _origPostMessage(payload);
     } catch {
       // ignore
     }
@@ -54,7 +54,7 @@
       // ignore
     }
     try {
-      postMessage({ type: 'status', level: 'warn', message, data, t: nowMs() });
+      _origPostMessage({ type: 'status', level: 'warn', message, data, t: nowMs() });
     } catch {
       // ignore
     }
@@ -71,7 +71,7 @@
       // ignore
     }
     try {
-      postMessage({ type: 'error', message, error: String(error?.message || error || ''), t: nowMs() });
+      _origPostMessage({ type: 'error', message, error: String(error?.message || error || ''), t: nowMs() });
     } catch {
       // ignore
     }
@@ -103,7 +103,8 @@
     if (!text) return;
     // Keep a consistent envelope so engine can log everything.
     try {
-      postMessage({ type: 'sf', data: text, t: nowMs() });
+      // Use ORIGINAL postMessage to avoid feedback loop with our postMessage wrapper.
+      _origPostMessage({ type: 'sf', data: text, t: nowMs() });
     } catch {
       // ignore
     }
@@ -119,10 +120,6 @@
       if (typeof msg === 'string') {
         console.log('[Worker] <<', msg);
         emitSfLine(msg);
-      } else if (msg && typeof msg === 'object' && typeof msg.data === 'string') {
-        // Some builds might post { data: "..." }
-        console.log('[Worker] <<', msg.data);
-        emitSfLine(msg.data);
       }
     } catch {
       // ignore
