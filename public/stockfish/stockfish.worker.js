@@ -275,18 +275,23 @@
       attempt('Method 3: Using Module.Stockfish() constructor', () => self.Module.Stockfish()));
 
   if (!sf) {
+    // Many stockfish.js builds are meant to run as a *standalone worker script* and
+    // therefore do not expose a Stockfish() constructor at all.
+    //
+    // We treat "no constructor" as a supported mode and continue, letting the
+    // imported script handle messages internally.
     if (!detectedStandaloneWorker) {
-      fail('ERROR: No Stockfish constructor found!', {
+      detectedStandaloneWorker = true;
+      warn('No Stockfish constructor found; assuming standalone-worker build. Continuing.', {
         attempts,
         globals: listInterestingGlobals(),
+        note: 'If Stockfish still does not respond to UCI, the issue is likely message handler hookup or wasm loading.',
       });
-      return;
+    } else {
+      status('Standalone-worker mode: no constructor found (expected). Continuing.', {
+        attempts,
+      });
     }
-
-    // Standalone worker mode: no constructor needed.
-    status('Standalone-worker mode: no constructor found (expected). Continuing.', {
-      attempts,
-    });
   }
 
   if (sf) {
