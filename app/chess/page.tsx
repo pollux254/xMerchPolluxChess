@@ -455,11 +455,12 @@ export default function Chess() {
       alert("Please connect your wallet first!")
       return
     }
-    window.location.href = `/gamechessboard?player=${playerID}&fee=0&size=${selectedSize}`
+    // Bot matchmaking (random opponent)
+    window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center px-6 py-12">
+    <div className="min-h-[100dvh] bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center p-4">
       <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 flex items-center justify-between z-50">
         <Link href="/" className="text-lg font-semibold text-foreground hover:text-primary transition-colors">
           ← Home
@@ -482,32 +483,32 @@ export default function Chess() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className="w-full max-w-md rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-10 shadow-2xl"
+        className="w-full max-w-sm md:max-w-md mt-16 md:mt-0 rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-6 md:p-8 shadow-2xl max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain"
       >
-        <div className="text-center mb-8">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+        <div className="text-center mb-5">
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
             PolluxChess Tournament
           </h1>
-          <p className="mt-3 text-base text-muted-foreground">
+          <p className="mt-2 text-sm md:text-base text-muted-foreground">
             Skill-based chess wagering on Xahau
           </p>
         </div>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4">
           {!playerID ? (
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               disabled={loadingLogin}
               onClick={handleLogin}
-              className="w-full rounded-2xl bg-primary py-5 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-lg"
+              className="w-full rounded-2xl bg-primary py-4 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-base md:text-lg"
             >
               {loadingLogin ? "Connecting..." : "Connect with Xaman"}
             </motion.button>
           ) : existingTournament ? (
             <>
-              <div className="text-center py-8">
-                <div className="mb-4 text-4xl">♟️</div>
+              <div className="text-center py-6">
+                <div className="mb-3 text-3xl">♟️</div>
                 <h2 className="text-xl font-bold mb-2">
                   {existingTournament.status === "waiting" 
                     ? "You're in the Waiting Room!"
@@ -525,13 +526,13 @@ export default function Chess() {
               <div className="flex items-center justify-between">
                 <div className="text-center flex-1">
                   <p className="text-sm text-muted-foreground mb-1">Connected as</p>
-                  <p className="font-mono text-lg font-semibold text-foreground">
+                  <p className="font-mono text-base md:text-lg font-semibold text-foreground">
                     {playerID.slice(0, 10)}...{playerID.slice(-6)}
                   </p>
                 </div>
                 <button
                   onClick={handleDisconnect}
-                  className="ml-4 rounded-full p-3 bg-red-600/90 hover:bg-red-700 text-white transition-all"
+                  className="ml-3 rounded-full p-3 bg-red-600/90 hover:bg-red-700 text-white transition-all"
                   aria-label="Disconnect wallet"
                 >
                   <LogOut className="h-5 w-5" />
@@ -540,7 +541,7 @@ export default function Chess() {
 
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Tournament Size</p>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 gap-2">
                   {sizes.map((size) => (
                     <motion.button
                       key={size}
@@ -564,7 +565,7 @@ export default function Chess() {
                 <div className="relative mb-4">
                   <button
                     onClick={() => setShowAssetDropdown(!showAssetDropdown)}
-                    className="w-full rounded-xl py-4 px-6 font-bold text-left bg-muted/50 border border-border hover:bg-muted transition-all flex items-center justify-between"
+                    className="w-full rounded-xl py-3 px-4 font-bold text-left bg-muted/50 border border-border hover:bg-muted transition-all flex items-center justify-between"
                   >
                     <span>{selectedAsset.label}</span>
                     <span className="text-xl">▼</span>
@@ -578,7 +579,7 @@ export default function Chess() {
                             setSelectedAssetIndex(index)
                             setShowAssetDropdown(false)
                           }}
-                          className="w-full px-6 py-4 text-left hover:bg-muted transition-all"
+                          className="w-full px-4 py-3 text-left hover:bg-muted transition-all"
                         >
                           {asset.label}
                         </button>
@@ -586,7 +587,7 @@ export default function Chess() {
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 gap-2">
                   {feeTiers.map((tier) => (
                     <motion.button
                       key={tier}
@@ -611,7 +612,7 @@ export default function Chess() {
                 whileTap={{ scale: 0.98 }}
                 disabled={loadingPay}
                 onClick={handlePayFeeHook}
-                className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-6 font-bold text-white text-xl shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-4 font-bold text-white text-base md:text-lg shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} XAH)`}
               </motion.button>
@@ -622,7 +623,7 @@ export default function Chess() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleFreePlay}
-                className="w-full rounded-2xl bg-card border-2 border-border py-5 font-bold text-foreground text-lg shadow-xl hover:shadow-muted/30 transition-all"
+                className="w-full rounded-2xl bg-card border-2 border-border py-4 font-bold text-foreground text-base md:text-lg shadow-xl hover:shadow-muted/30 transition-all"
               >
                 🚀 FREE PLAY vs BOT
               </motion.button>
@@ -630,23 +631,23 @@ export default function Chess() {
           )}
         </div>
 
-        <p className="mt-10 text-center text-sm text-muted-foreground">
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           Powered by{" "}
           <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary transition-colors">
             xMerch
           </a>
         </p>
 
-        <div className="mt-6 flex items-center justify-center gap-10">
+        <div className="mt-5 flex items-center justify-center gap-6">
           <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="3" y="6" width="18" height="13" rx="2" />
               <path d="M3 10h18" />
               <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
             </svg>
           </a>
           <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="5" r="2" />
               <circle cx="5" cy="19" r="2" />
               <circle cx="19" cy="19" r="2" />
@@ -654,7 +655,7 @@ export default function Chess() {
             </svg>
           </a>
           <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="4" y="4" width="16" height="16" rx="2" />
               <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
             </svg>

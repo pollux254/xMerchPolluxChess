@@ -153,10 +153,26 @@
 }
 
 @layer base {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Utilities (non-Tailwind, used where viewport-constrained layouts are required) */
+.min-h-screen-safe {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.scrollable-container {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }

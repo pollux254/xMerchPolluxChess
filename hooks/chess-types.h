@@ -56,6 +56,10 @@ typedef enum {
  */
 typedef struct {
     uint64_t pieces[6];
+    // Color occupancy bitboards (required because pieces[] are type-only boards)
+    // color[CHESS_WHITE] = all white pieces occupancy
+    // color[CHESS_BLACK] = all black pieces occupancy
+    uint64_t color[2];
     uint8_t en_passant; // 0..63 or 0xFF
     uint8_t castling;   // bitmask: 1=WK 2=WQ 4=BK 8=BQ
     uint8_t to_move;    // CHESS_WHITE / CHESS_BLACK

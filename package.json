@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start"
   },
-  "packageManager": "pnpm@10.23.0",
+  "packageManager": "pnpm@10.28.0",
   "pnpm": {
     "overrides": {
       "glob": "^10.5.0",
@@ -33,6 +33,7 @@
     "chessground": "^9.2.1",
     "dotenv": "^17.2.3",
     "framer-motion": "^12.23.24",
+    "lila-stockfish-web": "^0.0.11",
     "lucide-react": "^0.454.0",
     "next": "16.1.1",
     "react": "19.2.3",

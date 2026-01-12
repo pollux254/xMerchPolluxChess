@@ -182,33 +182,155 @@ export default function Home() {
 
           {isFAQOpen && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              className="mt-4 rounded-2xl border border-border bg-card/80 backdrop-blur-sm p-10 space-y-8 shadow-xl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="grid gap-6"
             >
+              {/* Wallet & Account */}
               <div>
                 <h3 className="font-bold text-xl">Which wallets can I use?</h3>
-                <p className="text-muted-foreground mt-2">Only Xaman is available for now — your wallet serves as your Player ID.</p>
+                <p className="text-muted-foreground mt-2">Only <strong>Xaman</strong> is supported. Your wallet address serves as your Player ID across all tournaments and games.</p>
               </div>
+              
+              <div>
+                <h3 className="font-bold text-xl">Do I need to create an account?</h3>
+                <p className="text-muted-foreground mt-2">No separate account needed — just connect your Xaman wallet. Your wallet address is your Player ID, and all stats are tied to it.</p>
+              </div>
+
+              {/* Tournament System */}
               <div>
                 <h3 className="font-bold text-xl">How does the tournament work?</h3>
-                <p className="text-muted-foreground mt-2">Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2–16 players), pay the entry fee to join the queue. Once full, bracket matches begin. Winner takes 90% of the pot (10% platform fee). 20-minute default timer.</p>
+                <p className="text-muted-foreground mt-2">
+                  Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2, 4, 8, or 16 players), then pay the entry fee. Your funds are held securely in an on-chain smart contract (Xahau Hook). Once the tournament fills, bracket matches begin automatically. Prizes are distributed based on final placement.
+                </p>
               </div>
+
               <div>
-                <h3 className="font-bold text-xl">How does the NFT prize work?</h3>
-                <p className="text-muted-foreground mt-2">Optional NFT deposits — winner receives all deposited NFTs. If none awarded, NFTs are returned.</p>
+                <h3 className="font-bold text-xl">What's the prize structure?</h3>
+                <p className="text-muted-foreground mt-2">
+                  <strong>Platform fee:</strong> 11% (deducted when tournament starts)<br />
+                  <strong>Winner takes all</strong> <br />
+                
+                </p>
               </div>
+
               <div>
-                <h3 className="font-bold text-xl">When does the timer start?</h3>
-                <p className="text-muted-foreground mt-2">After White's first move. Default 20 minutes per game.</p>
+                <h3 className="font-bold text-xl">What if the tournament doesn't fill?</h3>
+                <p className="text-muted-foreground mt-2">If the tournament doesn't fill within <strong>10 minutes</strong>, it's automatically cancelled and all entry fees are refunded 100% (no platform fee charged).</p>
               </div>
+
+              <div>
+                <h3 className="font-bold text-xl">How are my funds protected?</h3>
+                <p className="text-muted-foreground mt-2">All entry fees are held in a <strong>Xahau Hook</strong> (smart contract) on the blockchain. The platform cannot access these funds — they're automatically distributed to winners based on game results verified on-chain.</p>
+              </div>
+
+              {/* Chess Rules */}
+              <div>
+                <h3 className="font-bold text-xl">How does the chess engine work?</h3>
+                <p className="text-muted-foreground mt-2">All chess moves are <strong>validated on-chain</strong> by a Xahau Hook smart contract. Illegal moves are automatically rejected, check and checkmate are detected on-chain, and game results are trustless and verifiable.</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">What are the time controls?</h3>
+                <p className="text-muted-foreground mt-2"><strong>20 minutes per player</strong> (40 minutes total per game). Time starts when the match begins. If your clock runs out, you automatically lose. Time is tracked on-chain and enforced by the smart contract.</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">Can I offer a draw?</h3>
+                <p className="text-muted-foreground mt-2"><strong>No.</strong> Draw offers are disabled to prevent bracket conflicts. Games can only end in forced draws (stalemate, repetition, 50-move rule, or insufficient material).</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">What happens if there's a draw?</h3>
+                <p className="text-muted-foreground mt-2">
+                  We use a <strong>material tiebreaker</strong>: Pawn=1, Knight=3, Bishop=3, Rook=5, Queen=9. <strong>Lower material value wins</strong> (better position management). If truly tied on material in the final game, prize is split 50/50.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">Can I resign?</h3>
+                <p className="text-muted-foreground mt-2">Yes, you can resign at any time. Your opponent will win immediately.</p>
+              </div>
+
+              {/* Playing & Connectivity */}
               <div>
                 <h3 className="font-bold text-xl">What happens if I disconnect?</h3>
-                <p className="text-muted-foreground mt-2">Session recoverable during active tournament. Timer continues.</p>
+                <p className="text-muted-foreground mt-2">Your session is <strong>automatically recoverable</strong>. Refresh or return to the site, reconnect your wallet, and you'll be redirected back to your active game. Your clock continues running during disconnect. ⚠️ If you disconnect and your time runs out, you automatically lose.</p>
               </div>
+
+              <div>
+                <h3 className="font-bold text-xl">Can I leave a tournament early?</h3>
+                <p className="text-muted-foreground mt-2"><strong>During waiting room:</strong> Yes, you can disconnect before the tournament starts.<br /><strong>During active game:</strong> No. Logging out during an active match will forfeit the game (automatic loss).</p>
+              </div>
+
+              {/* Practice vs Ranked */}
+              <div>
+                <h3 className="font-bold text-xl">What's the difference between Bot Mode and Tournaments?</h3>
+                <p className="text-muted-foreground mt-2">
+                  <strong>Bot Mode (Free Play):</strong> Practice against AI with no entry fee. Separate practice stats & ELO. Does NOT affect ranked stats.<br />
+                  <strong>Tournaments (Real Money):</strong> Play against real players with entry fees. Ranked stats & ELO. Win real prizes.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">Are stats tracked separately?</h3>
+                <p className="text-muted-foreground mt-2">
+                  <strong>Yes!</strong> You have two independent stat profiles:<br />
+                  <strong>Ranked Stats</strong> (tournaments): Games, wins, losses, ranked ELO, total wagered & won, leaderboard placement.<br />
+                  <strong>Practice Stats</strong> (bot games): Games, wins, losses, practice ELO. Playing bot games will never affect your ranked tournament stats.
+                </p>
+              </div>
+
+              {/* NFT Prizes */}
+              <div>
+                <h3 className="font-bold text-xl">How does the NFT prize work?</h3>
+                <p className="text-muted-foreground mt-2">Optional NFT deposits — winner receives all deposited NFTs. If none awarded, NFTs are returned. <em>(Note: This feature may be deprecated in future versions as we focus on the Hook-based prize system)</em></p>
+              </div>
+
+              {/* Technical */}
+              <div>
+                <h3 className="font-bold text-xl">What is a Xahau Hook?</h3>
+                <p className="text-muted-foreground mt-2">A <strong>Xahau Hook</strong> is like a smart contract — code that runs on the Xahau blockchain. Our chess Hook holds tournament entry fees in escrow, validates every chess move on-chain, enforces time controls automatically, and distributes prizes to winners. No human intervention needed.</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">Why use Hooks instead of a traditional backend?</h3>
+                <p className="text-muted-foreground mt-2">
+                  <strong>Trustless:</strong> You don't have to trust us with your money — the blockchain holds it.<br />
+                  <strong>Transparent:</strong> All game results are verified on-chain and publicly auditable.<br />
+                  <strong>Secure:</strong> Smart contract code can't be changed mid-tournament.<br />
+                  <strong>Fair:</strong> Impossible for us to manipulate results or withhold prizes.
+                </p>
+              </div>
+
+              {/* Safety */}
+              <div>
+                <h3 className="font-bold text-xl">Is my money safe?</h3>
+                <p className="text-muted-foreground mt-2">Yes. Entry fees are held in an <strong>on-chain smart contract</strong> (Xahau Hook), not in our wallets. We cannot access tournament funds — they're automatically distributed by the blockchain based on game results.</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">Can the platform steal my funds?</h3>
+                <p className="text-muted-foreground mt-2"><strong>No.</strong> Once you pay your entry fee, funds go directly to the Hook (smart contract). Only the Hook can distribute prizes based on game results. We have zero access to escrowed funds.</p>
+              </div>
+
+              {/* External Links */}
               <div>
                 <h3 className="font-bold text-xl">What about external platforms?</h3>
-                <p className="text-muted-foreground mt-2">Links provided for convenience only — all external activity at your own risk.</p>
+                <p className="text-muted-foreground mt-2">Links to external sites (Xaman, Xahau docs, etc.) are provided for convenience only. All external activity is at your own risk.</p>
+              </div>
+
+              {/* Common Issues */}
+              <div>
+                <h3 className="font-bold text-xl">I paid but didn't join the tournament — what happened?</h3>
+                <p className="text-muted-foreground mt-2">
+                  Check: Did you pay the exact entry fee? Did you include the correct tournament ID? Was the tournament already full? Did the transaction succeed in Xaman? Your wallet address can be checked on-chain to verify payment status.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">My opponent isn't moving — what happens?</h3>
+                <p className="text-muted-foreground mt-2">If they run out of time (20 minutes), they <strong>automatically lose</strong> by time forfeit. You win and advance.</p>
               </div>
             </motion.div>
           )}

@@ -34,6 +34,9 @@ importers:
       framer-motion:
         specifier: ^12.23.24
         version: 12.23.24(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      lila-stockfish-web:
+        specifier: ^0.0.11
+        version: 0.0.11
       lucide-react:
         specifier: ^0.454.0
         version: 0.454.0(react@19.2.3)
@@ -4215,6 +4218,9 @@ packages:
   lightningcss@1.30.2:
     resolution: {integrity: sha512-utfs7Pr5uJyyvDETitgsaqSyjCb2qNRAtuqUeWIAKztsOYdcACf2KtARYXg2pSvhkt+9NfoaNY7fxjl6nuMjIQ==}
     engines: {node: '>= 12.0.0'}
+
+  lila-stockfish-web@0.0.11:
+    resolution: {integrity: sha512-2n4WbLsQ/WDE79FKP7ciV4C5tXJcY21wT7M+iTDWl/UHbPTLwJ3dPwSbNBdQfRdJbtf/p9fY5XJIzuON12HFmQ==}
 
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
@@ -11961,6 +11967,8 @@ snapshots:
       lightningcss-linux-x64-musl: 1.30.2
       lightningcss-win32-arm64-msvc: 1.30.2
       lightningcss-win32-x64-msvc: 1.30.2
+
+  lila-stockfish-web@0.0.11: {}
 
   lines-and-columns@1.2.4: {}
 
