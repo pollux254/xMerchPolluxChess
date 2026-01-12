@@ -34,19 +34,41 @@ export class StockfishEngine {
 
   async initialize(): Promise<void> {
     try {
-      // NOTE: We intentionally use a self-hosted worker (served from Next.js `public/`)
+      // NOTE: We intentionally use self-hosted assets (served from Next.js `public/`)
       // instead of any external CDN. This is production-friendly (Vercel) and avoids
       // network/CORS issues.
       //
-      // The `stockfish.js` build we ship uses `self.location.hash` to locate its wasm
-      // and to enable worker mode.
-      // See: public/stockfish/stockfish.worker.js
-      const workerUrl = '/stockfish/stockfish.worker.js#stockfish.wasm,worker';
-      console.log('[stockfish] Creating self-hosted worker:', workerUrl);
-      this.worker = new Worker(workerUrl);
+      // IMPORTANT: The `stockfish.js` build we ship uses `self.location.hash` to:
+      //  - locate its wasm (first hash segment)
+      //  - enable worker mode (",worker")
+      //
+      // Using stockfish.js directly as the Worker entry is the most compatible option,
+      // because the engine can spawn additional workers (pthreads) by reusing its own URL.
+      const workerCandidates = [
+        '/stockfish/stockfish.js#stockfish.wasm,worker',
+        // fallback: our bootstrapper that importScripts('./stockfish.js')
+        '/stockfish/stockfish.worker.js#stockfish.wasm,worker',
+      ];
+
+      let lastError: unknown = null;
+      for (const workerUrl of workerCandidates) {
+        try {
+          console.log('[stockfish] Creating self-hosted worker:', workerUrl);
+          this.worker = new Worker(workerUrl);
+          break;
+        } catch (e) {
+          console.warn('[stockfish] Failed to create worker:', workerUrl, e);
+          lastError = e;
+          this.worker = null;
+        }
+      }
+
+      if (!this.worker) {
+        throw lastError ?? new Error('Failed to create Stockfish worker');
+      }
 
       this.worker.onmessage = (e) => {
-        const message = String(e.data);
+        const message = String(e.data).trim();
         
         if (message.startsWith('error:')) {
           console.error('[stockfish]', message);
@@ -68,16 +90,12 @@ export class StockfishEngine {
         console.error('[stockfish] Worker error:', error);
       };
 
-      // Wait for worker to load Stockfish
-      console.log('[stockfish] Waiting for worker to load...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
       // Send UCI command
       console.log('[stockfish] Sending uci');
       this.send('uci');
 
       // Wait for uciok
-      await this.waitForUciOk(30000);
+      await this.waitForUciOk(90000);
       console.log('[stockfish] UCI initialized');
 
     } catch (error) {
