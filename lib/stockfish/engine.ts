@@ -1,6 +1,10 @@
-// Stockfish Engine - DIAGNOSTIC VERSION
-// This version is intentionally very verbose so we can pinpoint where
-// Stockfish initialization fails on Vercel.
+// Stockfish Engine (Vercel-compatible)
+//
+// IMPORTANT:
+// This repo's Stockfish.js build uses `self.location.hash`.
+// Do NOT include `,worker` in the hash for the *main* engine worker, otherwise
+// Stockfish.js enters an internal worker mode and will not install the UCI
+// message handler (no `uciok`).
 
 import type { BotStyle } from "../bots/types";
 
@@ -30,46 +34,18 @@ export function getStockfishParams(style: BotStyle, rank: number): StockfishSear
   }
 }
 
-type WorkerEnvelope =
-  | { type: "ready"; t?: number }
-  | { type: "status"; message: string; data?: unknown; t?: number; level?: "warn" }
-  | { type: "error"; message: string; error?: string; t?: number }
-  | { type: "sf"; data: string; t?: number };
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class StockfishEngine {
   private worker: Worker | null = null;
-
-  // Raw messages we consider part of the UCI stream (and some diagnostics)
   private messageQueue: string[] = [];
-  private allMessages: Array<{ t: number; kind: string; data: unknown }> = [];
-
-  private workerReadySignal = false;
   private uciOk = false;
   private readyOk = false;
 
-  private startedAt = 0;
-
-  private nowMs() {
-    return Date.now() - this.startedAt;
-  }
-
   async initialize(): Promise<void> {
-    this.startedAt = Date.now();
-
-    // If the worker never sends anything, these logs will still show whether
-    // creation succeeded and if any error events fire.
-    console.log("[Engine] Creating worker...");
-
-    // Prefer the DIAGNOSTIC worker first so we always get worker-side logs.
-    // IMPORTANT:
-    // This Stockfish.js build treats ",worker" in the URL hash as a special
-    // internal worker mode (it will NOT install the UCI `onmessage` handler).
-    // For the main engine worker that receives UCI commands, we must NOT
-    // include ",worker" in the hash.
+    // Prefer our wrapper worker first. It just importScripts(stockfish.js).
     const workerCandidates = [
       "/stockfish/stockfish.worker.js#stockfish.wasm",
       // fallback: using stockfish.js directly
@@ -80,12 +56,9 @@ export class StockfishEngine {
 
     for (const workerUrl of workerCandidates) {
       try {
-        console.log("[Engine] Trying worker candidate:", workerUrl);
         this.worker = new Worker(workerUrl);
-        console.log("[Engine] Worker created:", workerUrl);
         break;
       } catch (e) {
-        console.error("[Engine] Failed to create worker:", workerUrl, e);
         lastError = e;
         this.worker = null;
       }
@@ -96,110 +69,27 @@ export class StockfishEngine {
     }
 
     this.worker.onmessage = (e: MessageEvent) => {
-      const data = e.data as unknown;
-      this.allMessages.push({ t: this.nowMs(), kind: "onmessage", data });
-
-      // Diagnostic worker sends structured objects.
-      if (data && typeof data === "object" && "type" in (data as any)) {
-        const msg = data as WorkerEnvelope;
-        if (msg.type === "status") {
-          const prefix = msg.level === "warn" ? "[Engine] [Worker][WARN]" : "[Engine] [Worker]";
-          console.log(prefix, msg.message, msg.data ?? "", `(t=${msg.t ?? "?"}ms)`);
-          return;
-        }
-
-        if (msg.type === "error") {
-          console.error("[Engine] [Worker][ERROR]", msg.message, msg.error ?? "", `(t=${msg.t ?? "?"}ms)`);
-          // keep going; might still reveal more information
-          return;
-        }
-
-        if (msg.type === "ready") {
-          this.workerReadySignal = true;
-          console.log("[Engine] ✅ Worker ready signal received", `(t=${msg.t ?? "?"}ms)`);
-          return;
-        }
-
-        if (msg.type === "sf") {
-          const line = String(msg.data).trim();
-          console.log("[Engine] <<", line);
-          this.messageQueue.push(line);
-          if (line === "uciok") this.uciOk = true;
-          if (line === "readyok") this.readyOk = true;
-          return;
-        }
-      }
-
-      // Non-diagnostic / plain-string worker.
-      const line = String(data ?? "").trim();
+      const line = String(e.data ?? "").trim();
       if (!line) return;
-      console.log("[Engine] <<", line);
       this.messageQueue.push(line);
       if (line === "uciok") this.uciOk = true;
       if (line === "readyok") this.readyOk = true;
     };
 
     this.worker.onerror = (error) => {
-      this.allMessages.push({ t: this.nowMs(), kind: "onerror", data: error });
       console.error("[Engine] Worker error event:", error);
     };
 
-    // Wait for diagnostic worker to announce readiness (this is NOT UCI readyok).
-    await this.waitForWorkerReadySignal(30_000);
-
-    console.log("[Engine] ✅ Worker setup complete, waiting for UCI initialization...");
-    console.log("[Engine] >> uci");
+    // Kick off UCI handshake
     this.worker.postMessage("uci");
-
     await this.waitForUciOk(30_000);
-    console.log("[Engine] ✅ UCI OK received");
-  }
-
-  private async waitForWorkerReadySignal(timeoutMs: number): Promise<void> {
-    const started = Date.now();
-    let nextProgressLogAt = started + 5_000;
-
-    while (!this.workerReadySignal && Date.now() - started < timeoutMs) {
-      if (Date.now() >= nextProgressLogAt) {
-        console.log(
-          "[Engine] Status: waiting for worker ready signal...",
-          `${Math.floor((Date.now() - started) / 1000)}s elapsed`,
-          `messages=${this.allMessages.length}`
-        );
-        nextProgressLogAt += 5_000;
-      }
-      await sleep(100);
-    }
-
-    if (!this.workerReadySignal) {
-      console.error("[Engine] ❌ Timed out waiting for worker ready signal");
-      console.error("[Engine] Messages received (all):", this.allMessages);
-      throw new Error("Stockfish worker init timed out (no ready signal)");
-    }
   }
 
   private async waitForUciOk(timeoutMs: number): Promise<void> {
     const started = Date.now();
-    let nextProgressLogAt = started + 5_000;
-
-    while (!this.uciOk && Date.now() - started < timeoutMs) {
-      if (Date.now() >= nextProgressLogAt) {
-        const recent = this.messageQueue.slice(-10);
-        console.log(
-          "[Engine] Status: waiting for uciok...",
-          `${Math.floor((Date.now() - started) / 1000)}s elapsed`,
-          `queue=${this.messageQueue.length}`,
-          { recent }
-        );
-        nextProgressLogAt += 5_000;
-      }
-      await sleep(100);
-    }
+    while (!this.uciOk && Date.now() - started < timeoutMs) await sleep(50);
 
     if (!this.uciOk) {
-      console.error("[Engine] ❌ Timed out waiting for uciok");
-      console.error("[Engine] Messages received (UCI queue):", this.messageQueue);
-      console.error("[Engine] Messages received (all):", this.allMessages);
       throw new Error("Stockfish uci init timed out");
     }
   }
@@ -208,37 +98,18 @@ export class StockfishEngine {
     if (!this.worker) throw new Error("Worker not initialized");
     if (this.readyOk) return;
 
-    console.log("[Engine] >> isready");
     this.worker.postMessage("isready");
 
     const started = Date.now();
-    let nextProgressLogAt = started + 5_000;
-
-    while (!this.readyOk && Date.now() - started < timeoutMs) {
-      if (Date.now() >= nextProgressLogAt) {
-        const recent = this.messageQueue.slice(-10);
-        console.log(
-          "[Engine] Status: waiting for readyok...",
-          `${Math.floor((Date.now() - started) / 1000)}s elapsed`,
-          `queue=${this.messageQueue.length}`,
-          { recent }
-        );
-        nextProgressLogAt += 5_000;
-      }
-      await sleep(100);
-    }
+    while (!this.readyOk && Date.now() - started < timeoutMs) await sleep(50);
 
     if (!this.readyOk) {
-      console.error("[Engine] ❌ Timed out waiting for readyok");
-      console.error("[Engine] Messages received (UCI queue):", this.messageQueue);
-      console.error("[Engine] Messages received (all):", this.allMessages);
       throw new Error("Stockfish readyok timeout");
     }
   }
 
   private send(cmd: string) {
     if (!this.worker) throw new Error("Worker not initialized");
-    console.log("[Engine] >>", cmd);
     this.worker.postMessage(cmd);
   }
 
@@ -262,7 +133,6 @@ export class StockfishEngine {
     this.send(`go depth ${params.depth}`);
 
     const deadline = Date.now() + timeoutMs;
-    let nextProgressLogAt = Date.now() + 5_000;
 
     while (Date.now() < deadline) {
       const bestMoveMsg = this.messageQueue.find((m) => m.startsWith("bestmove"));
@@ -270,28 +140,13 @@ export class StockfishEngine {
         const move = bestMoveMsg.split(" ")[1];
         return move || "e2e4";
       }
-
-      if (Date.now() >= nextProgressLogAt) {
-        console.log("[Engine] Status: waiting for bestmove...", {
-          queue: this.messageQueue.length,
-          recent: this.messageQueue.slice(-10),
-        });
-        nextProgressLogAt += 5_000;
-      }
-
       await sleep(100);
     }
-
-    console.error("[Engine] ❌ Move calculation timeout", {
-      queue: this.messageQueue.length,
-      recent: this.messageQueue.slice(-20),
-    });
     throw new Error("Move calculation timeout");
   }
 
   terminate() {
     if (this.worker) {
-      console.log("[Engine] Terminating worker");
       this.worker.terminate();
       this.worker = null;
     }
