@@ -11,6 +11,46 @@
   /** @type {string[]} */
   const queue = [];
 
+  // Keep original postMessage available early so any diagnostic wrappers can use it.
+  const _origPostMessage = self.postMessage.bind(self);
+
+  // Network diagnostics: log fetch() calls used by Emscripten to load wasm.
+  const _origFetch = typeof self.fetch === 'function' ? self.fetch.bind(self) : null;
+  if (_origFetch) {
+    self.fetch = async (input, init) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input && typeof input === 'object' && 'url' in input
+            ? input.url
+            : String(input);
+      try {
+        // Note: do not include full Response body; just metadata
+        _origPostMessage({ type: 'status', message: 'fetch() called', data: { url, init }, t: Date.now() - startedAt });
+      } catch {
+        // ignore
+      }
+      const res = await _origFetch(input, init);
+      try {
+        _origPostMessage({
+          type: 'status',
+          message: 'fetch() response',
+          data: {
+            url: res.url,
+            status: res.status,
+            ok: res.ok,
+            contentType: res.headers?.get?.('content-type'),
+            contentLength: res.headers?.get?.('content-length'),
+          },
+          t: Date.now() - startedAt,
+        });
+      } catch {
+        // ignore
+      }
+      return res;
+    };
+  }
+
   // Save pre-import handler so we can tell whether stockfish.js installed its own.
   const preImportOnMessage = self.onmessage;
 
@@ -113,7 +153,6 @@
   // IMPORTANT: stockfish.js may be a standalone worker that calls global postMessage.
   // We wrap postMessage to mirror any outbound string as a structured `{type:'sf'}`
   // message for the main thread and to log it.
-  const _origPostMessage = self.postMessage.bind(self);
   self.postMessage = (msg, transfer) => {
     try {
       // Stockfish UCI output usually goes out as string lines.
@@ -209,6 +248,11 @@
     fail('Worker error event', err);
   };
 
+  // Capture promise rejections (often how wasm instantiation failures show up)
+  self.addEventListener('unhandledrejection', (e) => {
+    fail('Unhandled promise rejection in worker', e?.reason ?? e);
+  });
+
   status('========== WORKER STARTING ==========', {
     location: self.location?.href,
     hash: self.location?.hash,
@@ -230,6 +274,13 @@
   }
 
   status('Available globals after import', listInterestingGlobals());
+
+  // Log whether stockfish.js installed a worker message handler.
+  status('Post-import onmessage state', {
+    preImportOnMessageType: typeof preImportOnMessage,
+    postImportOnMessageType: typeof self.onmessage,
+    onmessageChanged: self.onmessage !== preImportOnMessage,
+  });
 
   // If stockfish.js installed an onmessage handler, we treat it as a strong
   // signal that this is a standalone-worker build.
