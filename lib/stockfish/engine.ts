@@ -65,10 +65,15 @@ export class StockfishEngine {
     console.log("[Engine] Creating worker...");
 
     // Prefer the DIAGNOSTIC worker first so we always get worker-side logs.
+    // IMPORTANT:
+    // This Stockfish.js build treats ",worker" in the URL hash as a special
+    // internal worker mode (it will NOT install the UCI `onmessage` handler).
+    // For the main engine worker that receives UCI commands, we must NOT
+    // include ",worker" in the hash.
     const workerCandidates = [
-      "/stockfish/stockfish.worker.js#stockfish.wasm,worker",
-      // fallback: using stockfish.js directly (may hide worker-side logs)
-      "/stockfish/stockfish.js#stockfish.wasm,worker",
+      "/stockfish/stockfish.worker.js#stockfish.wasm",
+      // fallback: using stockfish.js directly
+      "/stockfish/stockfish.js#stockfish.wasm",
     ];
 
     let lastError: unknown = null;

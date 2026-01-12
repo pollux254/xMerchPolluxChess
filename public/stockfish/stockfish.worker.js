@@ -225,6 +225,9 @@
       if (typeof msg === 'string') {
         console.log('[Worker] <<', msg);
         emitSfLine(msg);
+        // Do NOT forward the raw string as well, otherwise the Engine receives
+        // duplicates (both the string and our structured `{type:'sf'}` envelope).
+        return;
       }
     } catch {
       // ignore
