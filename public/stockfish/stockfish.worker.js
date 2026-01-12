@@ -14,6 +14,72 @@
   // Keep original postMessage available early so any diagnostic wrappers can use it.
   const _origPostMessage = self.postMessage.bind(self);
 
+  // Ensure stockfish.js will install its own onmessage handler (some builds do
+  // `onmessage = onmessage || ...`). If onmessage is pre-set, it might skip.
+  // We don't rely on onmessage ourselves (we use addEventListener), so clearing it
+  // is safe.
+  try {
+    // eslint-disable-next-line no-global-assign
+    self.onmessage = null;
+  } catch {
+    // ignore
+  }
+
+  // XHR diagnostics: Emscripten often uses synchronous XMLHttpRequest to load wasm.
+  // Wrap XHR to log requests (URL + response status).
+  if (typeof self.XMLHttpRequest === 'function') {
+    const _OrigXHR = self.XMLHttpRequest;
+    // @ts-ignore
+    self.XMLHttpRequest = function () {
+      const xhr = new _OrigXHR();
+      let _url = '';
+      const _open = xhr.open;
+      xhr.open = function (method, url) {
+        _url = String(url);
+        try {
+          _origPostMessage({ type: 'status', message: 'XHR open', data: { method, url: _url }, t: Date.now() - startedAt });
+        } catch {
+          // ignore
+        }
+        // @ts-ignore
+        return _open.apply(this, arguments);
+      };
+      const _send = xhr.send;
+      xhr.send = function () {
+        try {
+          _origPostMessage({ type: 'status', message: 'XHR send', data: { url: _url }, t: Date.now() - startedAt });
+        } catch {
+          // ignore
+        }
+
+        xhr.addEventListener('load', () => {
+          try {
+            _origPostMessage({
+              type: 'status',
+              message: 'XHR load',
+              data: { url: _url, status: xhr.status, responseType: xhr.responseType },
+              t: Date.now() - startedAt,
+            });
+          } catch {
+            // ignore
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          try {
+            _origPostMessage({ type: 'error', message: 'XHR error', error: String(_url), t: Date.now() - startedAt });
+          } catch {
+            // ignore
+          }
+        });
+
+        // @ts-ignore
+        return _send.apply(this, arguments);
+      };
+      return xhr;
+    };
+  }
+
   // Network diagnostics: log fetch() calls used by Emscripten to load wasm.
   const _origFetch = typeof self.fetch === 'function' ? self.fetch.bind(self) : null;
   if (_origFetch) {
@@ -276,11 +342,11 @@
   status('Available globals after import', listInterestingGlobals());
 
   // Log whether stockfish.js installed a worker message handler.
-  status('Post-import onmessage state', {
+  status('Post-import onmessage state', JSON.stringify({
     preImportOnMessageType: typeof preImportOnMessage,
     postImportOnMessageType: typeof self.onmessage,
     onmessageChanged: self.onmessage !== preImportOnMessage,
-  });
+  }));
 
   // If stockfish.js installed an onmessage handler, we treat it as a strong
   // signal that this is a standalone-worker build.
