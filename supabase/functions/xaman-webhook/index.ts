@@ -1,9 +1,10 @@
 // Supabase Edge Function for handling Xaman webhooks (Xahau)
 // Deploy: supabase functions deploy xaman-webhook
-// Secrets: XUMM_API_KEY, XUMM_API_SECRET, XAH_DESTINATION, SB_URL, SB_SERVICE_ROLE_KEY (optional for DB inserts)
+// Handles both tournament payments and regular donations
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { serve } from "https://deno.land/std@0.208.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
+/// <reference lib="deno.window" />
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +26,8 @@ serve(async (req: Request) => {
     const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY")
     const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET")
     const XAH_DESTINATION = Deno.env.get("XAH_DESTINATION")
+    const HOOK_ADDRESS_TESTNET = Deno.env.get("HOOK_ADDRESS_TESTNET")
+    const HOOK_ADDRESS_MAINNET = Deno.env.get("HOOK_ADDRESS_MAINNET")
     const SUPABASE_URL = Deno.env.get("SB_URL")
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SB_SERVICE_ROLE_KEY")
 
@@ -45,6 +48,8 @@ serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
+
+    console.log("📥 Webhook received for payload:", payloadUuid)
 
     const statusResponse = await fetch(`https://xumm.app/api/v1/platform/payload/${payloadUuid}`, {
       method: "GET",
@@ -68,6 +73,7 @@ serve(async (req: Request) => {
     const payload = payloadStatus.payload
 
     if (!response?.dispatched_result) {
+      console.log("⚠️ Transaction not submitted")
       return new Response(JSON.stringify({ ok: true, verified: false, reason: "Transaction not submitted" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -77,49 +83,149 @@ serve(async (req: Request) => {
     const txResult = response.dispatched_result
     const isSuccess = txResult === "tesSUCCESS"
     const txDestination = response.destination
-    const destinationMatch = txDestination === XAH_DESTINATION
     const networkId = response.networkId
     const signerAccount = response.account
     const txHash = response.txid
     const amountDrops = payload?.request_json?.Amount
     const amount = amountDrops ? Number(amountDrops) / 1_000_000 : 0
 
+    console.log("💰 Transaction details:", { txHash, amount, destination: txDestination, result: txResult })
+
+    // Decode memo to check if this is a tournament payment
     let memo = ""
+    let memoData: any = null
     const memos = payload?.request_json?.Memos
     if (memos && memos[0]?.Memo?.MemoData) {
       try {
         memo = new TextDecoder().decode(
           new Uint8Array(memos[0].Memo.MemoData.match(/.{1,2}/g).map((byte: string) => Number.parseInt(byte, 16))),
         )
+        // Try to parse as JSON for tournament data
+        try {
+          memoData = JSON.parse(memo)
+        } catch {
+          // Not JSON, regular text memo
+        }
       } catch (e) {
         console.error("Failed to decode memo:", e)
       }
     }
 
-    const verified = isSuccess && destinationMatch
+    // Check if destination is Hook address (tournament payment)
+    const isHookPayment = txDestination === HOOK_ADDRESS_TESTNET || txDestination === HOOK_ADDRESS_MAINNET
+    const isRegularDonation = txDestination === XAH_DESTINATION
 
-    if (verified && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
-      try {
-        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-        const { error: insertError } = await supabase.from("donations").insert({
-          network: "xahau",
-          amount,
-          currency: "XAH",
-          memo: memo || null,
-          tx_hash: txHash,
-          sender_address: signerAccount,
-          status: "completed",
-          payload_uuid: payloadUuid,
-          completed_at: new Date().toISOString(),
-        })
+    const verified = isSuccess && (isHookPayment || isRegularDonation)
 
-        if (insertError) {
-          console.error("Failed to store donation:", insertError)
-        } else {
-          console.log("Donation stored successfully")
+    if (!verified) {
+      console.log("❌ Transaction not verified:", { isSuccess, isHookPayment, isRegularDonation })
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          verified: false,
+          reason: `Transaction failed or wrong destination`
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      )
+    }
+
+    if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+      // Handle tournament payment
+      if (isHookPayment && memoData?.action === "join" && memoData?.tournament && memoData?.player) {
+        console.log("🎮 Processing tournament join:", memoData)
+
+        try {
+          // Get tournament details
+          const { data: tournament, error: tournamentError } = await supabase
+            .from('tournaments')
+            .select('*')
+            .eq('id', memoData.tournament)
+            .single()
+
+          if (tournamentError) {
+            console.error("❌ Tournament not found:", tournamentError)
+            throw tournamentError
+          }
+
+          // Add player to tournament
+          const { error: playerError } = await supabase
+            .from('tournament_players')
+            .insert({
+              tournament_id: memoData.tournament,
+              player_address: memoData.player,
+              status: 'waiting',
+              joined_at: new Date().toISOString()
+            })
+
+          if (playerError && playerError.code !== '23505') { // Ignore duplicate
+            console.error("❌ Failed to add player:", playerError)
+            throw playerError
+          }
+
+          console.log("✅ Player added to tournament")
+
+          // Log transaction
+          await supabase
+            .from('hook_logs')
+            .insert({
+              tx_hash: txHash,
+              tournament_id: memoData.tournament,
+              player_address: memoData.player,
+              network: memoData.network || 'testnet',
+              status: 'success',
+              message: `Player ${memoData.player} joined tournament ${memoData.tournament}`
+            })
+
+          // Check if tournament is full
+          const { count } = await supabase
+            .from('tournament_players')
+            .select('*', { count: 'exact', head: true })
+            .eq('tournament_id', memoData.tournament)
+            .eq('status', 'waiting')
+
+          console.log("👥 Current player count:", count, "/", tournament.tournament_size)
+
+          if (count && count >= tournament.tournament_size) {
+            console.log("🎉 Tournament is FULL! Starting...")
+            // Tournament is full - start it
+            await supabase
+              .from('tournaments')
+              .update({ status: 'in_progress' })
+              .eq('id', memoData.tournament)
+
+            console.log("✅ Tournament status updated to in_progress")
+          }
+
+        } catch (dbError) {
+          console.error("❌ Database error processing tournament:", dbError)
         }
-      } catch (dbError) {
-        console.error("Database error:", dbError)
+      } 
+      // Handle regular donation
+      else if (isRegularDonation) {
+        console.log("💝 Processing regular donation")
+        try {
+          const { error: insertError } = await supabase.from("donations").insert({
+            network: "xahau",
+            amount,
+            currency: "XAH",
+            memo: memo || null,
+            tx_hash: txHash,
+            sender_address: signerAccount,
+            status: "completed",
+            payload_uuid: payloadUuid,
+            completed_at: new Date().toISOString(),
+          })
+
+          if (insertError) {
+            console.error("❌ Failed to store donation:", insertError)
+          } else {
+            console.log("✅ Donation stored successfully")
+          }
+        } catch (dbError) {
+          console.error("❌ Database error storing donation:", dbError)
+        }
       }
     }
 
@@ -134,11 +240,12 @@ serve(async (req: Request) => {
         networkId,
         payloadUuid,
         amount,
+        tournamentJoin: isHookPayment && memoData?.action === "join"
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     )
   } catch (error) {
-    console.error("Webhook error:", error)
+    console.error("❌ Webhook error:", error)
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Internal server error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
