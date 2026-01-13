@@ -12,6 +12,13 @@ import { getWaitingRoomState } from "@/lib/xahau-hooks"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
+// NEW: Network toggle - defaults to testnet if env var not set
+const network = process.env.NEXT_PUBLIC_XAHAU_NETWORK || 'testnet';
+const rpcUrl = network === 'testnet' 
+  ? 'wss://xahau-test.net:51234' 
+  : 'wss://xahau.network:51234'; // mainnet RPC (update later if needed)
+const hookAddress = process.env.NEXT_PUBLIC_HOOK_ADDRESS || (network === 'testnet' ? 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY' : ''); // fallback for testnet
+
 function WaitingRoomContent() {
   const searchParams = useSearchParams()
   const tournamentId = searchParams.get("tournamentId")
@@ -120,11 +127,11 @@ function WaitingRoomContent() {
     // Optional: read Hook waiting room namespace if Hook address is configured.
     // This is useful to verify the Hook is deployed and state can be read.
     ;(async () => {
-      const hookAddress = process.env.NEXT_PUBLIC_HOOK_ADDRESS
       if (!hookAddress) return
 
       try {
-        const resp = await getWaitingRoomState()
+        // NEW: Use dynamic RPC for testnet/mainnet
+        const resp = await getWaitingRoomState();
         setHookWaitingRoom(resp)
       } catch (err) {
         console.warn("Hook waiting room read failed (non-fatal):", err)
@@ -361,7 +368,12 @@ function WaitingRoomContent() {
   const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-4 relative">
+      {/* NEW: Network indicator (debug - remove later if not needed) */}
+      <div className="absolute top-4 right-4 bg-gray-800/70 text-white px-3 py-1 rounded-full text-sm z-50">
+        Network: {network.toUpperCase()}
+      </div>
+
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -400,10 +412,10 @@ function WaitingRoomContent() {
             </div>
           </div>
 
-        {/* Phase 1 debug: Hook state snapshot (hidden unless available) */}
+          {/* Phase 1 debug: Hook state snapshot (hidden unless available) */}
           {hookWaitingRoom && (
             <div className="bg-gray-900/40 backdrop-blur rounded-2xl p-3 mb-4 border border-purple-500/20">
-              <p className="text-xs text-purple-200 mb-2">🪝 Hook waiting room state (debug)</p>
+              <p className="text-xs text-purple-200 mb-2">🪝 Hook waiting room state (debug) - {network.toUpperCase()}</p>
               <pre className="text-[11px] overflow-auto max-h-32 text-gray-200">
                 {JSON.stringify(hookWaitingRoom, null, 2)}
               </pre>

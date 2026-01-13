@@ -5,6 +5,7 @@ import { motion } from "framer-motion"
 import { Moon, Sun, Monitor, LogOut } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@supabase/supabase-js"
+import { Client } from 'xrpl' // Added for testnet/mainnet RPC connection
 
 // Hook integration (Phase 1: UI placeholder)
 // TODO: Wire this to the wallet-connect flow (getConnectedWallet)
@@ -32,6 +33,13 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+// NEW: Network toggle - defaults to testnet if env var not set
+const network = process.env.NEXT_PUBLIC_XAHAU_NETWORK || 'testnet';
+const rpcUrl = network === 'testnet' 
+  ? 'wss://xahau-test.net:51234' 
+  : 'wss://xahau.network:51234'; // mainnet URL (update if needed later)
+const hookAddress = process.env.NEXT_PUBLIC_HOOK_ADDRESS || (network === 'testnet' ? 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY' : ''); // fallback for testnet
 
 export default function Chess() {
   const [playerID, setPlayerID] = useState<string | null>(null)
@@ -434,14 +442,44 @@ export default function Chess() {
     try {
       setLoadingPay(true)
 
-      // TODO: Get wallet instance (needs wallet connect integration)
-      // const wallet = await getConnectedWallet()
+      const client = new Client(rpcUrl);
+      await client.connect();
 
-      // Join tournament via Hook
-      // const result = await joinTournamentHook(wallet, selectedFee)
-      // console.log("Hook join result:", result)
+      // NEW: Log current network for debug
+      console.log(`Using network: ${network} | RPC: ${rpcUrl} | Hook: ${hookAddress}`);
 
-      alert("⚠️ Hook integration coming soon! Use standard payment for now.")
+      // NEW: Dynamic memo based on selection
+      const memoData = {
+        action: "join",
+        tournament: `${selectedAsset.currency}_${selectedSize}_${selectedFee}_ROOM1`,
+        player: playerID,
+        network: network // optional: include network for future filtering
+      };
+
+      const tx = {
+        TransactionType: "Payment",
+        Account: playerID,
+        Amount: {
+          currency: selectedAsset.currency,
+          value: selectedFee.toString(),
+          issuer: selectedAsset.issuer || undefined // omit for native XAH
+        },
+        Destination: hookAddress,
+        Memos: [{
+          Memo: {
+            MemoData: Buffer.from(JSON.stringify(memoData)).toString('hex')
+          }
+        }]
+      };
+
+      // TODO: Integrate your existing Xaman signing flow here
+      // (e.g., call your /api/auth/xaman/create-payload endpoint with tx)
+      // For now, placeholder alert
+      alert(`Sending ${selectedFee} ${selectedAsset.currency} to Hook on ${network.toUpperCase()}...\n\nApprove in Xaman.`);
+
+      // After signing success (your existing logic), update Supabase or show success
+      // Example: await fetch('/api/update-hook-log', { method: 'POST', body: JSON.stringify({ txHash: 'real-tx-hash' }) });
+
     } catch (err) {
       console.error("Hook payment error:", err)
       alert("Failed to join via Hook. Try again.")
@@ -461,6 +499,11 @@ export default function Chess() {
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center p-4">
+      {/* NEW: Network indicator (debug - remove later if not needed) */}
+      <div className="fixed top-20 left-4 bg-gray-800/70 text-white px-3 py-1 rounded-full text-sm z-50">
+        Network: {network.toUpperCase()}
+      </div>
+
       <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 flex items-center justify-between z-50">
         <Link href="/" className="text-lg font-semibold text-foreground hover:text-primary transition-colors">
           ← Home
@@ -614,7 +657,7 @@ export default function Chess() {
                 onClick={handlePayFeeHook}
                 className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-4 font-bold text-white text-base md:text-lg shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} XAH)`}
+                {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} ${selectedAsset.currency}) - ${network.toUpperCase()}`}
               </motion.button>
 
               <div className="text-center text-muted-foreground font-medium my-2">Or</div>
