@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { XummSdk, XummTypes } from "xumm-sdk"
+import { getXahauNetworkId, type XahauNetwork } from "@/lib/xahau-network"
 
 interface SignInResponse {
   ok: boolean
@@ -14,6 +15,9 @@ export async function POST(req: NextRequest) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
 
+    const header = (req.headers.get("x-xahau-network") || "").toLowerCase()
+    const network: XahauNetwork = header === "testnet" || header === "mainnet" ? (header as XahauNetwork) : "mainnet"
+
     // Check if using Supabase edge function
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-signinPayload`
@@ -27,6 +31,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           returnUrl: baseUrl,
+          network,
         }),
       })
 
@@ -52,7 +57,7 @@ export async function POST(req: NextRequest) {
     // Fallback: Use local Xumm SDK
     const apiKey = process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
     const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
-    const networkId = Number(process.env.NEXT_PUBLIC_XAHAU_NETWORK_ID || 21337)
+    const networkId = getXahauNetworkId(network)
 
     if (!apiKey || !apiSecret) {
       return NextResponse.json(

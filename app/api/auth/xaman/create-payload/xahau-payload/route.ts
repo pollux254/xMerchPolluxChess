@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { XummSdk, XummTypes } from "xumm-sdk"
+import { getXahauNetworkId, type XahauNetwork } from "@/lib/xahau-network"
 
 interface PayloadResponse {
   ok: boolean
@@ -17,12 +18,42 @@ interface RequestBody {
   player?: string
   size?: number
   memo?: string
+  network?: XahauNetwork
+}
+
+function getNetworkFromRequest(req: NextRequest, body?: RequestBody): XahauNetwork {
+  const header = (req.headers.get("x-xahau-network") || "").toLowerCase()
+  const fromHeader = header === "testnet" || header === "mainnet" ? (header as XahauNetwork) : undefined
+  const fromBody = body?.network
+  if (fromBody === "testnet" || fromBody === "mainnet") return fromBody
+  if (fromHeader) return fromHeader
+  return "mainnet"
+}
+
+function getDestinationForNetwork(network: XahauNetwork): string {
+  // Prefer explicit per-network env vars when present.
+  if (network === "testnet") {
+    return (
+      process.env.XAH_DESTINATION_TESTNET ||
+      process.env.XAH_DESTINATION ||
+      process.env.XAMAN_DESTINATION_ADDRESS ||
+      ""
+    )
+  }
+
+  return (
+    process.env.XAH_DESTINATION_MAINNET ||
+    process.env.XAH_DESTINATION ||
+    process.env.XAMAN_DESTINATION_ADDRESS ||
+    ""
+  )
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: RequestBody = await req.json()
     const { amount, currency = "XAH", issuer, player, size = 1, memo } = body
+    const network = getNetworkFromRequest(req, body)
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
@@ -51,6 +82,7 @@ export async function POST(req: NextRequest) {
           issuer,
           memo: fullMemo,
           returnUrl: `${baseUrl}/chess`,
+          network,
         }),
       })
 
@@ -76,8 +108,8 @@ export async function POST(req: NextRequest) {
     // Fallback: Use local Xumm SDK
     const apiKey = process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
     const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
-    const destination = process.env.XAH_DESTINATION || process.env.XAMAN_DESTINATION_ADDRESS || ""
-    const networkId = Number(process.env.NEXT_PUBLIC_XAHAU_NETWORK_ID || 21337)
+    const destination = getDestinationForNetwork(network)
+    const networkId = getXahauNetworkId(network)
 
     if (!apiKey || !apiSecret || !destination) {
       return NextResponse.json(

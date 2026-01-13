@@ -17,6 +17,7 @@ interface PayloadRequest {
   returnUrl?: string
   player?: string
   size?: number
+  network?: "mainnet" | "testnet"
 }
 
 function stringToHex(str: string): string {
@@ -39,6 +40,8 @@ serve(async (req: Request) => {
     const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY")
     const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET")
     const DESTINATION = Deno.env.get("XAH_DESTINATION")
+    const DESTINATION_MAINNET = Deno.env.get("XAH_DESTINATION_MAINNET")
+    const DESTINATION_TESTNET = Deno.env.get("XAH_DESTINATION_TESTNET")
     const SUPABASE_URL = Deno.env.get("SB_URL")
 
     if (!XUMM_API_KEY || !XUMM_API_SECRET) {
@@ -49,16 +52,15 @@ serve(async (req: Request) => {
       )
     }
 
-    if (!DESTINATION) {
-      console.error("Missing XAH_DESTINATION")
-      return new Response(
-        JSON.stringify({ ok: false, error: "Server config error: Missing destination" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      )
-    }
-
     const body: PayloadRequest = await req.json()
-    const { amount, currency = "XAH", issuer, memo, returnUrl, player, size } = body
+    const { amount, currency = "XAH", issuer, memo, returnUrl, player, size, network } = body
+
+    const resolvedNetwork = network === "testnet" || network === "mainnet" ? network : "mainnet"
+    const networkId = resolvedNetwork === "testnet" ? 21338 : 21337
+    const destinationForNetwork =
+      resolvedNetwork === "testnet"
+        ? (DESTINATION_TESTNET || DESTINATION)
+        : (DESTINATION_MAINNET || DESTINATION)
 
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ ok: false, error: "Invalid amount" }), {
@@ -67,12 +69,20 @@ serve(async (req: Request) => {
       })
     }
 
-    console.log("Payment request:", { player, amount, size, currency, returnUrl })
+    console.log("Payment request:", { player, amount, size, currency, returnUrl, network: resolvedNetwork })
+
+    if (!destinationForNetwork) {
+      console.error("Missing destination for network", resolvedNetwork)
+      return new Response(
+        JSON.stringify({ ok: false, error: "Server config error: Missing destination" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      )
+    }
 
     const txjson: Record<string, unknown> = {
       TransactionType: "Payment",
-      Destination: DESTINATION,
-      NetworkID: 21337,
+      Destination: destinationForNetwork,
+      NetworkID: networkId,
     }
 
     // Handle native XAH vs issued currencies

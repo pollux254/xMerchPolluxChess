@@ -18,6 +18,7 @@ const corsHeaders = {
 
 interface SignInRequest {
   returnUrl?: string
+  network?: "mainnet" | "testnet"
 }
 
 serve(async (req: Request) => {
@@ -38,13 +39,16 @@ serve(async (req: Request) => {
     }
 
     const body: SignInRequest = await req.json()
-    const { returnUrl } = body
+    const { returnUrl, network } = body
+
+    const resolvedNetwork = network === "testnet" || network === "mainnet" ? network : "mainnet"
+    const networkId = resolvedNetwork === "testnet" ? 21338 : 21337
 
     console.log("SignIn request:", { returnUrl })
 
     const txjson: Record<string, unknown> = {
       TransactionType: "SignIn",
-      NetworkID: 21337,
+      NetworkID: networkId,
     }
 
     const payloadOptions: Record<string, unknown> = {

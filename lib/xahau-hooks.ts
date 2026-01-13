@@ -1,7 +1,20 @@
 import { Client, Wallet } from 'xrpl'
 
-const HOOK_ADDRESS = process.env.NEXT_PUBLIC_HOOK_ADDRESS!
-const XAHAU_WSS = 'wss://xahau.network'
+import { getHookAddress, getXahauRpcUrl, type XahauNetwork } from "@/lib/xahau-network"
+
+function getHookAddressOrThrow(network: XahauNetwork): string {
+  const addr = getHookAddress(network)
+  if (!addr) throw new Error(`Missing hook address for network: ${network}`)
+  return addr
+}
+
+function getClient(network: XahauNetwork) {
+  return new Client(getXahauRpcUrl(network))
+}
+
+function resolveNetwork(network?: XahauNetwork): XahauNetwork {
+  return network === "testnet" || network === "mainnet" ? network : "mainnet"
+}
 
 // Helper functions
 function hashTournamentId(tournamentId: string): string {
@@ -15,14 +28,15 @@ function decodeTournamentState(response: any): any {
 }
 
 // Read tournament state from hook
-export async function getTournamentState(tournamentId: string) {
-  const client = new Client(XAHAU_WSS)
+export async function getTournamentState(tournamentId: string, network?: XahauNetwork) {
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   // Use 'as any' to bypass TypeScript checking for Xahau-specific command
   const response = await (client as any).request({
     command: 'account_namespace',
-    account: HOOK_ADDRESS,
+    account: getHookAddressOrThrow(net),
     namespace_id: hashTournamentId(tournamentId)
   })
   
@@ -34,15 +48,17 @@ export async function getTournamentState(tournamentId: string) {
 export async function joinTournamentOnChain(
   playerWallet: Wallet,
   paymentHash: string,
-  tournamentSize: number
+  tournamentSize: number,
+  network?: XahauNetwork
 ) {
-  const client = new Client(XAHAU_WSS)
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   const tx: any = {
     TransactionType: 'Payment',
     Account: playerWallet.address,
-    Destination: HOOK_ADDRESS,
+    Destination: getHookAddressOrThrow(net),
     Amount: '1', // 1 drop signal
     Memos: [{
       Memo: {
@@ -67,15 +83,17 @@ export async function joinTournamentOnChain(
  */
 export async function joinTournamentHook(
   playerWallet: Wallet,
-  entryFee: number = 10 // XAH
+  entryFee: number = 10, // XAH
+  network?: XahauNetwork
 ): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   const tx: any = {
     TransactionType: 'Payment',
     Account: playerWallet.address,
-    Destination: HOOK_ADDRESS,
+    Destination: getHookAddressOrThrow(net),
     Amount: String(entryFee * 1000000), // Convert XAH to drops
     Memos: [{
       Memo: {
@@ -101,15 +119,17 @@ export async function joinTournamentHook(
 export async function submitMoveHook(
   playerWallet: Wallet,
   gameId: string,
-  move: string // e.g., "e2e4"
+  move: string, // e.g., "e2e4"
+  network?: XahauNetwork
 ): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   const tx: any = {
     TransactionType: 'Invoke',
     Account: playerWallet.address,
-    Destination: HOOK_ADDRESS,
+    Destination: getHookAddressOrThrow(net),
     Memos: [{
       Memo: {
         MemoType: Buffer.from('chess-move').toString('hex'),
@@ -132,8 +152,9 @@ export async function submitMoveHook(
 /**
  * Read waiting room state from Hook
  */
-export async function getWaitingRoomState(): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+export async function getWaitingRoomState(network?: XahauNetwork): Promise<any> {
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   // Waiting room key: 0x02 || 0x02 (for 1v1)
@@ -141,7 +162,7 @@ export async function getWaitingRoomState(): Promise<any> {
   
   const response = await (client as any).request({
     command: 'account_namespace',
-    account: HOOK_ADDRESS,
+    account: getHookAddressOrThrow(net),
     namespace_id: namespaceId
   })
   
@@ -152,8 +173,9 @@ export async function getWaitingRoomState(): Promise<any> {
 /**
  * Read game state from Hook
  */
-export async function getGameState(gameId: string): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+export async function getGameState(gameId: string, network?: XahauNetwork): Promise<any> {
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   // Game state key: 0x01 || game_id_hash
@@ -162,7 +184,7 @@ export async function getGameState(gameId: string): Promise<any> {
   
   const response = await (client as any).request({
     command: 'account_namespace',
-    account: HOOK_ADDRESS,
+    account: getHookAddressOrThrow(net),
     namespace_id: namespaceId
   })
   
@@ -173,8 +195,9 @@ export async function getGameState(gameId: string): Promise<any> {
 /**
  * Read player profile from Hook
  */
-export async function getPlayerProfile(playerAddress: string): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+export async function getPlayerProfile(playerAddress: string, network?: XahauNetwork): Promise<any> {
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   // Player profile key: 0x03 || player_address_hash
@@ -183,7 +206,7 @@ export async function getPlayerProfile(playerAddress: string): Promise<any> {
   
   const response = await (client as any).request({
     command: 'account_namespace',
-    account: HOOK_ADDRESS,
+    account: getHookAddressOrThrow(net),
     namespace_id: namespaceId
   })
   
@@ -194,8 +217,9 @@ export async function getPlayerProfile(playerAddress: string): Promise<any> {
 /**
  * Read global statistics from Hook
  */
-export async function getGlobalStats(): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+export async function getGlobalStats(network?: XahauNetwork): Promise<any> {
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   // Global stats key: 0xFF || 0x00...00
@@ -203,7 +227,7 @@ export async function getGlobalStats(): Promise<any> {
   
   const response = await (client as any).request({
     command: 'account_namespace',
-    account: HOOK_ADDRESS,
+    account: getHookAddressOrThrow(net),
     namespace_id: namespaceId
   })
   
@@ -216,15 +240,17 @@ export async function getGlobalStats(): Promise<any> {
  */
 export async function forfeitGameHook(
   playerWallet: Wallet,
-  gameId: string
+  gameId: string,
+  network?: XahauNetwork
 ): Promise<any> {
-  const client = new Client(XAHAU_WSS)
+  const net = resolveNetwork(network)
+  const client = getClient(net)
   await client.connect()
   
   const tx: any = {
     TransactionType: 'Invoke',
     Account: playerWallet.address,
-    Destination: HOOK_ADDRESS,
+    Destination: getHookAddressOrThrow(net),
     Memos: [{
       Memo: {
         MemoType: Buffer.from('chess-forfeit').toString('hex'),
