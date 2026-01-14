@@ -1,0 +1,425 @@
+-- Chess Wagering Platform - Initial Schema
+-- This migration creates all necessary tables for the chess tournament system
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ============================================================================
+-- TOURNAMENTS TABLE
+-- ============================================================================
+CREATE TABLE tournaments (
+  id TEXT PRIMARY KEY,
+  entry_fee DECIMAL(20,6) NOT NULL,
+  currency TEXT DEFAULT 'XAH',
+  size INTEGER NOT NULL CHECK (size IN (2, 4, 8, 16)),
+  player_count INTEGER DEFAULT 0,
+  prize_pool DECIMAL(20,6) DEFAULT 0,
+  platform_fee DECIMAL(20,6) DEFAULT 0,
+  status TEXT DEFAULT 'waiting' CHECK (status IN ('waiting', 'active', 'complete', 'cancelled')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  current_round INTEGER DEFAULT 0,
+  hook_state JSONB, -- Full Hook state for verification
+  hook_account TEXT -- Xahau Hook account address
+);
+
+CREATE INDEX idx_tournaments_status ON tournaments(status);
+CREATE INDEX idx_tournaments_created_at ON tournaments(created_at DESC);
+
+COMMENT ON TABLE tournaments IS 'Tournament records synced from Xahau Hook';
+COMMENT ON COLUMN tournaments.hook_state IS 'Raw state data from Xahau Hook for verification';
+
+-- ============================================================================
+-- TOURNAMENT PLAYERS TABLE
+-- ============================================================================
+CREATE TABLE tournament_players (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  wallet_address TEXT NOT NULL,
+  position INTEGER, -- Final placement (1, 2, 3, etc.)
+  prize_amount DECIMAL(20,6),
+  status TEXT DEFAULT 'joined' CHECK (status IN ('pending', 'joined', 'active', 'eliminated', 'winner')),
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  eliminated_at TIMESTAMPTZ,
+  UNIQUE(tournament_id, wallet_address)
+);
+
+CREATE INDEX idx_tournament_players_tournament ON tournament_players(tournament_id);
+CREATE INDEX idx_tournament_players_wallet ON tournament_players(wallet_address);
+
+COMMENT ON TABLE tournament_players IS 'Players participating in tournaments';
+
+-- ============================================================================
+-- MATCHES TABLE
+-- ============================================================================
+CREATE TABLE matches (
+  id TEXT PRIMARY KEY,
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  round INTEGER NOT NULL,
+  match_number INTEGER NOT NULL,
+  player1_wallet TEXT NOT NULL,
+  player2_wallet TEXT NOT NULL,
+  player1_time_left INTEGER DEFAULT 1200000, -- 20 minutes in milliseconds
+  player2_time_left INTEGER DEFAULT 1200000,
+  board_fen TEXT DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+  board_state JSONB, -- Detailed board state from Hook
+  winner TEXT,
+  result_type TEXT CHECK (result_type IN ('checkmate', 'resignation', 'time_forfeit', 'material_tiebreak', 'stalemate')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'complete')),
+  move_count INTEGER DEFAULT 0,
+  last_move_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_matches_tournament ON matches(tournament_id);
+CREATE INDEX idx_matches_status ON matches(status);
+CREATE INDEX idx_matches_players ON matches(player1_wallet, player2_wallet);
+
+COMMENT ON TABLE matches IS 'Individual chess matches within tournaments';
+COMMENT ON COLUMN matches.board_fen IS 'Forsyth-Edwards Notation of current board position';
+
+-- ============================================================================
+-- MOVES TABLE
+-- ============================================================================
+CREATE TABLE moves (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  move_number INTEGER NOT NULL,
+  player TEXT NOT NULL,
+  from_square TEXT NOT NULL,
+  to_square TEXT NOT NULL,
+  piece TEXT NOT NULL,
+  promotion TEXT,
+  algebraic_notation TEXT, -- e4, Nf3, O-O, etc.
+  is_capture BOOLEAN DEFAULT false,
+  is_check BOOLEAN DEFAULT false,
+  is_checkmate BOOLEAN DEFAULT false,
+  is_castling BOOLEAN DEFAULT false,
+  is_en_passant BOOLEAN DEFAULT false,
+  time_remaining INTEGER, -- Player's time after this move (ms)
+  time_spent INTEGER, -- Time spent on this move (ms)
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(match_id, move_number)
+);
+
+CREATE INDEX idx_moves_match ON moves(match_id);
+CREATE INDEX idx_moves_match_number ON moves(match_id, move_number);
+
+COMMENT ON TABLE moves IS 'Move history for all matches';
+COMMENT ON COLUMN moves.algebraic_notation IS 'Standard chess notation (e.g., e4, Nf3, O-O)';
+
+-- ============================================================================
+-- RANKED STATS TABLE (Real Money Games)
+-- ============================================================================
+CREATE TABLE ranked_stats (
+  wallet_address TEXT PRIMARY KEY,
+  total_games INTEGER DEFAULT 0,
+  wins INTEGER DEFAULT 0,
+  losses INTEGER DEFAULT 0,
+  draws INTEGER DEFAULT 0,
+  elo_rating INTEGER DEFAULT 1200,
+  rank TEXT DEFAULT 'Bronze' CHECK (rank IN ('Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond')),
+  total_wagered DECIMAL(20,6) DEFAULT 0,
+  total_won DECIMAL(20,6) DEFAULT 0,
+  net_profit DECIMAL(20,6) DEFAULT 0,
+  highest_win DECIMAL(20,6) DEFAULT 0,
+  tournaments_played INTEGER DEFAULT 0,
+  tournaments_won INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_ranked_elo ON ranked_stats(elo_rating DESC);
+CREATE INDEX idx_ranked_net_profit ON ranked_stats(net_profit DESC);
+
+COMMENT ON TABLE ranked_stats IS 'Player statistics for real money (ranked) games';
+
+-- ============================================================================
+-- PRACTICE STATS TABLE (Bot Games)
+-- ============================================================================
+CREATE TABLE practice_stats (
+  wallet_address TEXT PRIMARY KEY,
+  total_games INTEGER DEFAULT 0,
+  wins INTEGER DEFAULT 0,
+  losses INTEGER DEFAULT 0,
+  draws INTEGER DEFAULT 0,
+  practice_elo INTEGER DEFAULT 1200,
+  practice_rank TEXT DEFAULT 'Beginner' CHECK (practice_rank IN ('Beginner', 'Intermediate', 'Advanced', 'Expert')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_practice_elo ON practice_stats(practice_elo DESC);
+
+COMMENT ON TABLE practice_stats IS 'Player statistics for bot practice games';
+
+-- ============================================================================
+-- PLAYER PROFILES TABLE
+-- ============================================================================
+CREATE TABLE player_profiles (
+  wallet_address TEXT PRIMARY KEY,
+  display_name TEXT,
+  avatar_url TEXT,
+  bio TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+COMMENT ON TABLE player_profiles IS 'Player profile information';
+
+-- ============================================================================
+-- GAME HISTORY TABLE (Complete Games)
+-- ============================================================================
+CREATE TABLE game_history (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  match_id TEXT NOT NULL REFERENCES matches(id),
+  tournament_id TEXT REFERENCES tournaments(id),
+  game_type TEXT NOT NULL CHECK (game_type IN ('ranked', 'practice')),
+  white_player TEXT NOT NULL,
+  black_player TEXT NOT NULL,
+  winner TEXT,
+  result_type TEXT,
+  pgn TEXT, -- Portable Game Notation (full game record)
+  total_moves INTEGER,
+  game_duration_ms INTEGER,
+  white_time_used_ms INTEGER,
+  black_time_used_ms INTEGER,
+  opening_name TEXT,
+  completed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_game_history_type ON game_history(game_type);
+CREATE INDEX idx_game_history_players ON game_history(white_player, black_player);
+CREATE INDEX idx_game_history_completed ON game_history(completed_at DESC);
+
+COMMENT ON TABLE game_history IS 'Complete game records in PGN format';
+
+-- ============================================================================
+-- HOOK EVENTS TABLE (Audit Log)
+-- ============================================================================
+CREATE TABLE hook_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_type TEXT NOT NULL,
+  tournament_id TEXT,
+  match_id TEXT,
+  wallet_address TEXT,
+  event_data JSONB NOT NULL,
+  hook_ledger_index INTEGER,
+  hook_tx_hash TEXT,
+  processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_hook_events_type ON hook_events(event_type);
+CREATE INDEX idx_hook_events_tournament ON hook_events(tournament_id);
+CREATE INDEX idx_hook_events_processed ON hook_events(processed_at DESC);
+
+COMMENT ON TABLE hook_events IS 'Audit log of events from Xahau Hook';
+
+-- ============================================================================
+-- LEADERBOARDS VIEW
+-- ============================================================================
+CREATE VIEW leaderboard_ranked AS
+SELECT 
+  wallet_address,
+  elo_rating,
+  rank,
+  wins,
+  losses,
+  total_games,
+  net_profit,
+  tournaments_won,
+  ROW_NUMBER() OVER (ORDER BY elo_rating DESC) as position
+FROM ranked_stats
+WHERE total_games > 0
+ORDER BY elo_rating DESC;
+
+CREATE VIEW leaderboard_practice AS
+SELECT 
+  wallet_address,
+  practice_elo as elo_rating,
+  practice_rank as rank,
+  wins,
+  losses,
+  total_games,
+  ROW_NUMBER() OVER (ORDER BY practice_elo DESC) as position
+FROM practice_stats
+WHERE total_games > 0
+ORDER BY practice_elo DESC;
+
+COMMENT ON VIEW leaderboard_ranked IS 'Ranked leaderboard sorted by ELO';
+COMMENT ON VIEW leaderboard_practice IS 'Practice leaderboard sorted by practice ELO';
+
+-- ============================================================================
+-- ACTIVE MATCHES VIEW
+-- ============================================================================
+CREATE VIEW active_matches AS
+SELECT 
+  m.id,
+  m.tournament_id,
+  m.round,
+  m.player1_wallet,
+  m.player2_wallet,
+  m.player1_time_left,
+  m.player2_time_left,
+  m.move_count,
+  m.last_move_at,
+  m.created_at,
+  t.entry_fee,
+  t.prize_pool
+FROM matches m
+JOIN tournaments t ON m.tournament_id = t.id
+WHERE m.status = 'in_progress';
+
+COMMENT ON VIEW active_matches IS 'Currently active matches with tournament info';
+
+-- ============================================================================
+-- FUNCTIONS
+-- ============================================================================
+
+-- Function to update ranked stats after a game
+CREATE OR REPLACE FUNCTION update_ranked_stats(
+  p_winner TEXT,
+  p_loser TEXT,
+  p_winner_elo INTEGER,
+  p_loser_elo INTEGER,
+  p_prize_amount DECIMAL
+)
+RETURNS void AS $$
+BEGIN
+  -- Update winner stats
+  INSERT INTO ranked_stats (wallet_address, wins, total_games, total_won, elo_rating)
+  VALUES (p_winner, 1, 1, p_prize_amount, p_winner_elo)
+  ON CONFLICT (wallet_address) DO UPDATE SET
+    wins = ranked_stats.wins + 1,
+    total_games = ranked_stats.total_games + 1,
+    total_won = ranked_stats.total_won + p_prize_amount,
+    net_profit = ranked_stats.net_profit + p_prize_amount,
+    elo_rating = p_winner_elo,
+    updated_at = NOW();
+    
+  -- Update loser stats
+  INSERT INTO ranked_stats (wallet_address, losses, total_games, elo_rating)
+  VALUES (p_loser, 1, 1, p_loser_elo)
+  ON CONFLICT (wallet_address) DO UPDATE SET
+    losses = ranked_stats.losses + 1,
+    total_games = ranked_stats.total_games + 1,
+    elo_rating = p_loser_elo,
+    updated_at = NOW();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to calculate ELO rating change
+CREATE OR REPLACE FUNCTION calculate_elo_change(
+  p_player_elo INTEGER,
+  p_opponent_elo INTEGER,
+  p_result DECIMAL -- 1.0 for win, 0.5 for draw, 0.0 for loss
+)
+RETURNS INTEGER AS $$
+DECLARE
+  k_factor INTEGER := 32;
+  expected_score DECIMAL;
+  new_elo INTEGER;
+BEGIN
+  expected_score := 1.0 / (1.0 + POWER(10, (p_opponent_elo - p_player_elo) / 400.0));
+  new_elo := p_player_elo + ROUND(k_factor * (p_result - expected_score));
+  RETURN new_elo;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- TRIGGERS
+-- ============================================================================
+
+-- Trigger to auto-update player profile last_active_at
+CREATE OR REPLACE FUNCTION update_last_active()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE player_profiles
+  SET last_active_at = NOW()
+  WHERE wallet_address = NEW.player;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_last_active
+AFTER INSERT ON moves
+FOR EACH ROW
+EXECUTE FUNCTION update_last_active();
+
+-- Trigger to auto-create player profiles
+CREATE OR REPLACE FUNCTION create_player_profile()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO player_profiles (wallet_address)
+  VALUES (NEW.wallet_address)
+  ON CONFLICT (wallet_address) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_create_profile_tournament
+AFTER INSERT ON tournament_players
+FOR EACH ROW
+EXECUTE FUNCTION create_player_profile();
+
+-- ============================================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ============================================================================
+
+-- Enable RLS on all tables
+ALTER TABLE tournaments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tournament_players ENABLE ROW LEVEL SECURITY;
+ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE moves ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ranked_stats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE practice_stats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE player_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hook_events ENABLE ROW LEVEL SECURITY;
+
+-- Public read access for most tables
+CREATE POLICY "Public read access" ON tournaments FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON tournament_players FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON matches FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON moves FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON ranked_stats FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON practice_stats FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON player_profiles FOR SELECT USING (true);
+CREATE POLICY "Public read access" ON game_history FOR SELECT USING (true);
+
+-- Only service role can write (edge functions)
+CREATE POLICY "Service role write" ON tournaments FOR INSERT USING (auth.role() = 'service_role');
+CREATE POLICY "Service role write" ON tournament_players FOR INSERT USING (auth.role() = 'service_role');
+CREATE POLICY "Service role write" ON matches FOR ALL USING (auth.role() = 'service_role');
+CREATE POLICY "Service role write" ON moves FOR INSERT USING (auth.role() = 'service_role');
+CREATE POLICY "Service role write" ON ranked_stats FOR ALL USING (auth.role() = 'service_role');
+CREATE POLICY "Service role write" ON practice_stats FOR ALL USING (auth.role() = 'service_role');
+CREATE POLICY "Service role write" ON hook_events FOR INSERT USING (auth.role() = 'service_role');
+
+-- Users can update their own profiles
+CREATE POLICY "Users can update own profile" ON player_profiles 
+FOR UPDATE USING (auth.uid()::text = wallet_address);
+
+-- ============================================================================
+-- SAMPLE DATA (for development/testing)
+-- ============================================================================
+
+-- Insert sample player profiles
+INSERT INTO player_profiles (wallet_address, display_name) VALUES
+  ('rTestPlayer1...', 'Alice'),
+  ('rTestPlayer2...', 'Bob'),
+  ('rTestPlayer3...', 'Charlie'),
+  ('rTestPlayer4...', 'Diana')
+ON CONFLICT DO NOTHING;
+
+-- Insert sample ranked stats
+INSERT INTO ranked_stats (wallet_address, total_games, wins, losses, elo_rating) VALUES
+  ('rTestPlayer1...', 10, 7, 3, 1350),
+  ('rTestPlayer2...', 8, 4, 4, 1200),
+  ('rTestPlayer3...', 5, 2, 3, 1150),
+  ('rTestPlayer4...', 12, 9, 3, 1450)
+ON CONFLICT DO NOTHING;
+
+COMMENT ON SCHEMA public IS 'Chess Wagering Platform - Supabase Schema v1.0';

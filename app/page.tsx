@@ -184,7 +184,7 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="grid gap-6"
+              className="grid gap-6 mt-6"
             >
               {/* Wallet & Account */}
               <div>
@@ -201,7 +201,7 @@ export default function Home() {
               <div>
                 <h3 className="font-bold text-xl">How does the tournament work?</h3>
                 <p className="text-muted-foreground mt-2">
-                  Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2, 4, 8, or 16 players), then pay the entry fee. Your funds are held securely in an on-chain smart contract (Xahau Hook). Once the tournament fills, bracket matches begin automatically. Prizes are distributed based on final placement.
+                  Select an asset (XRP, XAH, EVR, FUZZY, PLX, or RLUSD) and tournament size (2, 4, 8, or 16 players), then pay the entry fee. Your funds are held securely in an on-chain smart contract (Xahau Hook). Once the tournament fills, bracket matches begin automatically. This is <strong>single elimination</strong> — lose once and you're out! Prizes are distributed based on final placement.
                 </p>
               </div>
 
@@ -209,8 +209,7 @@ export default function Home() {
                 <h3 className="font-bold text-xl">What's the prize structure?</h3>
                 <p className="text-muted-foreground mt-2">
                   <strong>Platform fee:</strong> 11% (deducted when tournament starts)<br />
-                  <strong>Winner takes all</strong> <br />
-                
+                  <strong>Winner takes all</strong>
                 </p>
               </div>
 
@@ -232,7 +231,11 @@ export default function Home() {
 
               <div>
                 <h3 className="font-bold text-xl">What are the time controls?</h3>
-                <p className="text-muted-foreground mt-2"><strong>20 minutes per player</strong> (40 minutes total per game). Time starts when the match begins. If your clock runs out, you automatically lose. Time is tracked on-chain and enforced by the smart contract.</p>
+                <p className="text-muted-foreground mt-2">
+                  Each player gets <strong>20 minutes total</strong>. Your clock counts down only when it's YOUR turn to move. When your opponent is thinking, your clock is paused.<br /><br />
+                  <strong>First move rule:</strong> If a player doesn't make their first move within 5 minutes, they automatically forfeit and lose the game.<br /><br />
+                  If your clock runs out at any point, you automatically lose. Time is tracked on-chain and enforced by the smart contract.
+                </p>
               </div>
 
               <div>
@@ -243,7 +246,12 @@ export default function Home() {
               <div>
                 <h3 className="font-bold text-xl">What happens if there's a draw?</h3>
                 <p className="text-muted-foreground mt-2">
-                  We use a <strong>material tiebreaker</strong>: Pawn=1, Knight=3, Bishop=3, Rook=5, Queen=9. <strong>Lower material value wins</strong> (better position management). If truly tied on material in the final game, prize is split 50/50.
+                  We use a <strong>material tiebreaker</strong>: Pawn=1, Knight=3, Bishop=3, Rook=5, Queen=9. <strong>Higher material value wins</strong> (better position = more pieces remaining).<br /><br />
+                  <strong>Example:</strong><br />
+                  • Player A: Queen + Pawn = 10 points<br />
+                  • Player B: Rook + Bishop = 8 points<br />
+                  • <strong>Player A wins</strong> the tiebreaker (10 &gt; 8)<br /><br />
+                  If both players have exactly the same material value in the final game, the prize is split 50/50.
                 </p>
               </div>
 
@@ -331,6 +339,11 @@ export default function Home() {
               <div>
                 <h3 className="font-bold text-xl">My opponent isn't moving — what happens?</h3>
                 <p className="text-muted-foreground mt-2">If they run out of time (20 minutes), they <strong>automatically lose</strong> by time forfeit. You win and advance.</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-xl">What if my opponent doesn't make their first move?</h3>
+                <p className="text-muted-foreground mt-2">If they don't move within <strong>5 minutes</strong> of the game starting, they automatically forfeit. You win immediately.</p>
               </div>
             </motion.div>
           )}
