@@ -5,11 +5,6 @@ import { motion } from "framer-motion"
 import { Moon, Sun, Monitor, LogOut } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@supabase/supabase-js"
-import { Client } from 'xrpl' // Added for testnet/mainnet RPC connection
-
-// Hook integration (Phase 1: UI placeholder)
-// TODO: Wire this to the wallet-connect flow (getConnectedWallet)
-// import { joinTournamentHook } from "@/lib/xahau-hooks"
 
 type Theme = "light" | "middle" | "dark"
 
@@ -34,13 +29,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// NEW: Network toggle - defaults to testnet if env var not set
-const network = process.env.NEXT_PUBLIC_XAHAU_NETWORK || 'testnet';
-const rpcUrl = network === 'testnet' 
-  ? 'wss://xahau-test.net:51234' 
-  : 'wss://xahau.network:51234'; // mainnet URL (update if needed later)
-const hookAddress = process.env.NEXT_PUBLIC_HOOK_ADDRESS || (network === 'testnet' ? 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY' : ''); // fallback for testnet
-
 export default function Chess() {
   const [playerID, setPlayerID] = useState<string | null>(null)
   const [loadingLogin, setLoadingLogin] = useState(false)
@@ -54,11 +42,18 @@ export default function Chess() {
     id: string
     status: string
   } | null>(null)
+  
+  // Dynamic network state
+  const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
 
   const selectedAsset = assets[selectedAssetIndex]
-
   const feeTiers = [10, 25, 50, 100]
   const sizes = [2, 4, 8, 16]
+
+  // Dynamic Hook address based on network
+  const hookAddress = network === 'testnet'
+    ? (process.env.NEXT_PUBLIC_HOOK_ADDRESS_TESTNET || 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY')
+    : (process.env.NEXT_PUBLIC_HOOK_ADDRESS || process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY')
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as Theme
@@ -66,6 +61,11 @@ export default function Chess() {
       setTheme(savedTheme)
       document.documentElement.classList.remove("light", "middle", "dark")
       document.documentElement.classList.add(savedTheme)
+    }
+
+    const savedNetwork = localStorage.getItem("network") as 'testnet' | 'mainnet'
+    if (savedNetwork) {
+      setNetwork(savedNetwork)
     }
 
     const savedID = localStorage.getItem("playerID")
@@ -158,6 +158,18 @@ export default function Chess() {
     localStorage.setItem("theme", newTheme)
   }
 
+  const toggleNetwork = () => {
+    const newNetwork = network === 'testnet' ? 'mainnet' : 'testnet'
+    setNetwork(newNetwork)
+    localStorage.setItem("network", newNetwork)
+    console.log(`🔄 Switching to ${newNetwork.toUpperCase()}...`)
+    
+    // Force page refresh to reset all state and network-dependent data
+    setTimeout(() => {
+      window.location.reload()
+    }, 300)
+  }
+
   async function handleLogin() {
     try {
       setLoadingLogin(true)
@@ -166,7 +178,10 @@ export default function Chess() {
 
       const res = await fetch("/api/auth/xaman/create-signin/xahau-signin", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-xahau-network": network
+        },
         body: JSON.stringify({ returnUrl }),
       })
 
@@ -432,57 +447,150 @@ export default function Chess() {
     window.location.reload()
   }
 
-  // Phase 1 placeholder: Hook-based tournament join
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
       return
     }
 
+    if (!hookAddress) {
+      alert(`No Hook address configured for ${network.toUpperCase()}`)
+      return
+    }
+
     try {
       setLoadingPay(true)
+      console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
 
-      const client = new Client(rpcUrl);
-      await client.connect();
+      const tournamentId = `${selectedAsset.currency}_${selectedSize}_${selectedFee}_${network.toUpperCase()}_ROOM1`
+      console.log("📝 Tournament ID:", tournamentId)
 
-      // NEW: Log current network for debug
-      console.log(`Using network: ${network} | RPC: ${rpcUrl} | Hook: ${hookAddress}`);
+      const { data: existingTournamentData } = await supabase
+        .from('tournaments')
+        .select('*')
+        .eq('id', tournamentId)
+        .single()
 
-      // NEW: Dynamic memo based on selection
+      if (!existingTournamentData) {
+        console.log("🆕 Creating new tournament...")
+        const prizePool = selectedFee * selectedSize * 0.95
+        
+        const { error: createError } = await supabase
+          .from('tournaments')
+          .insert({
+            id: tournamentId,
+            tournament_size: selectedSize,
+            entry_fee: selectedFee,
+            currency: selectedAsset.currency,
+            prize_pool: prizePool,
+            status: 'waiting',
+            network: network
+          })
+
+        if (createError && createError.code !== '23505') {
+          throw createError
+        }
+      }
+
       const memoData = {
         action: "join",
-        tournament: `${selectedAsset.currency}_${selectedSize}_${selectedFee}_ROOM1`,
+        tournament: tournamentId,
         player: playerID,
-        network: network // optional: include network for future filtering
-      };
+        network: network
+      }
 
-      const tx = {
-        TransactionType: "Payment",
-        Account: playerID,
-        Amount: {
-          currency: selectedAsset.currency,
-          value: selectedFee.toString(),
-          issuer: selectedAsset.issuer || undefined // omit for native XAH
+      console.log("📤 Creating Xaman payload...")
+      const payloadRes = await fetch("/api/payment", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-xahau-network": network
         },
-        Destination: hookAddress,
-        Memos: [{
-          Memo: {
-            MemoData: Buffer.from(JSON.stringify(memoData)).toString('hex')
-          }
-        }]
-      };
+        body: JSON.stringify({ 
+          amount: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer,
+          memo: JSON.stringify(memoData),
+          network: network
+        })
+      })
 
-      // TODO: Integrate your existing Xaman signing flow here
-      // (e.g., call your /api/auth/xaman/create-payload endpoint with tx)
-      // For now, placeholder alert
-      alert(`Sending ${selectedFee} ${selectedAsset.currency} to Hook on ${network.toUpperCase()}...\n\nApprove in Xaman.`);
+      if (!payloadRes.ok) {
+        const errorData = await payloadRes.json()
+        throw new Error(`Xaman payload creation failed: ${errorData.error || 'Unknown error'}`)
+      }
 
-      // After signing success (your existing logic), update Supabase or show success
-      // Example: await fetch('/api/update-hook-log', { method: 'POST', body: JSON.stringify({ txHash: 'real-tx-hash' }) });
+      const payloadData = await payloadRes.json()
+      const { uuid, nextUrl, websocketUrl } = payloadData
 
-    } catch (err) {
-      console.error("Hook payment error:", err)
-      alert("Failed to join via Hook. Try again.")
+      if (!uuid || !nextUrl || !websocketUrl) {
+        throw new Error("Missing Xaman payload data")
+      }
+
+      console.log("✅ Xaman payload created:", uuid)
+
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      let xamanPopup: Window | null = null
+      
+      if (isMobile) {
+        window.location.href = nextUrl
+      } else {
+        xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
+        
+        if (!xamanPopup) {
+          alert("Popup blocked! Please allow popups for Xaman.")
+          setLoadingPay(false)
+          return
+        }
+      }
+
+      const ws = new WebSocket(websocketUrl)
+      
+      const timeoutId = setTimeout(() => {
+        ws.close()
+        if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+        setLoadingPay(false)
+        alert("Payment request expired. Please try again.")
+      }, 5 * 60 * 1000)
+
+      ws.onmessage = async (event) => {
+        const status = JSON.parse(event.data)
+        console.log("📡 Xaman status:", status)
+
+        if (status.signed === true) {
+          clearTimeout(timeoutId)
+          if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+          
+          console.log("✅ Payment signed! Waiting for webhook...")
+          
+          alert("✅ Payment submitted!\n\nRedirecting to waiting room...")
+
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          window.location.href = `/waiting-room?tournamentId=${tournamentId}`
+          
+          ws.close()
+          setLoadingPay(false)
+        } else if (status.signed === false) {
+          clearTimeout(timeoutId)
+          if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+          
+          alert("❌ Payment rejected")
+          setLoadingPay(false)
+          ws.close()
+        }
+      }
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        clearTimeout(timeoutId)
+        if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+        alert("Connection error. Please try again.")
+        setLoadingPay(false)
+      }
+
+    } catch (err: any) {
+      console.error("❌ Hook payment error:", err)
+      alert(`Failed to start payment:\n\n${err.message || err}`)
     } finally {
       setLoadingPay(false)
     }
@@ -493,15 +601,18 @@ export default function Chess() {
       alert("Please connect your wallet first!")
       return
     }
-    // Bot matchmaking (random opponent)
     window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
   }
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center p-4">
-      {/* NEW: Network indicator (debug - remove later if not needed) */}
-      <div className="fixed top-20 left-4 bg-gray-800/70 text-white px-3 py-1 rounded-full text-sm z-50">
-        Network: {network.toUpperCase()}
+      <div className="fixed top-20 left-4 z-50">
+        <button
+          onClick={toggleNetwork}
+          className="bg-gray-800/70 hover:bg-gray-700/70 text-white px-4 py-2 rounded-full text-sm font-semibold transition-all shadow-lg hover:shadow-xl"
+        >
+          🌐 {network.toUpperCase()}
+        </button>
       </div>
 
       <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 flex items-center justify-between z-50">
@@ -649,7 +760,6 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* Hook-based entry */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -657,7 +767,7 @@ export default function Chess() {
                 onClick={handlePayFeeHook}
                 className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-4 font-bold text-white text-base md:text-lg shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} ${selectedAsset.currency}) - ${network.toUpperCase()}`}
+                {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} ${selectedAsset.currency})`}
               </motion.button>
 
               <div className="text-center text-muted-foreground font-medium my-2">Or</div>

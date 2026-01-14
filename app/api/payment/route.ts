@@ -1,14 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { XummSdk, XummTypes } from "xumm-sdk"
-
-interface PayloadResponse {
-  ok: boolean
-  uuid?: string
-  nextUrl?: string
-  qrUrl?: string
-  websocketUrl?: string
-  error?: string
-}
+import { getXahauNetworkId, getHookAddress, type XahauNetwork } from "@/lib/xahau-network"
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,80 +11,95 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
     }
 
+    // Determine network from body or header
+    const requestedNetwork: XahauNetwork = 
+      (network === 'testnet' || network === 'mainnet') 
+        ? network 
+        : ((req.headers.get("x-xahau-network") || "testnet") as XahauNetwork)
+
+    console.log(`💳 Creating payment for ${requestedNetwork.toUpperCase()}`)
+
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+    const apiKey = process.env.XUMM_API_KEY || ""
+    const apiSecret = process.env.XUMM_API_SECRET || ""
+    
+    // Get network-specific hook address
+    const destination = getHookAddress(requestedNetwork)
 
-    // Get API credentials
-    const apiKey = process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
-    const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
-
-    // Get destination (Hook address for tournament, or regular destination)
-    const destination = network === 'testnet'
-      ? (process.env.NEXT_PUBLIC_HOOK_ADDRESS_TESTNET || process.env.XAH_DESTINATION_TESTNET || "")
-      : (process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || process.env.XAH_DESTINATION_MAINNET || "")
-
-    if (!apiKey || !apiSecret || !destination) {
+    if (!apiKey || !apiSecret) {
       return NextResponse.json(
-        { ok: false, error: "Server configuration error - missing API keys or destination" },
+        { ok: false, error: "Missing Xaman API credentials" },
         { status: 500 }
       )
     }
 
-    console.log(`💰 Creating payment: ${amount} ${currency} to ${destination} on ${network}`)
-
-    const xaman = new XummSdk(apiKey, apiSecret)
-
-    // Build transaction
-    const txjson: any = {
-      TransactionType: "Payment",
-      Destination: destination,
-      NetworkID: network === 'testnet' ? 21338 : 21337, // Xahau testnet/mainnet IDs
+    if (!destination) {
+      return NextResponse.json(
+        { ok: false, error: `No hook address configured for ${requestedNetwork}` },
+        { status: 500 }
+      )
     }
 
-    // Add amount (native XAH or issued currency)
+    console.log(`📍 Destination: ${destination}`)
+
+    const xaman = new XummSdk(apiKey, apiSecret)
+    
+    // Get network ID for Xahau
+    const networkId = getXahauNetworkId(requestedNetwork)
+    console.log(`🌐 Network ID: ${networkId} (${requestedNetwork})`)
+
+    const txjson: any = { 
+      TransactionType: "Payment", 
+      Destination: destination,
+      NetworkID: networkId  // ✅ Critical: Specify which Xahau network
+    }
+
+    // Handle amount formatting
     if (currency === "XAH" || !issuer) {
-      const drops = Math.round(Number(amount) * 1_000_000)
-      if (Number.isNaN(drops) || drops <= 0) {
-        return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 })
-      }
+      const drops = Math.round(Number(amount) * 1000000)
       txjson.Amount = String(drops)
     } else {
-      txjson.Amount = {
-        value: String(amount),
-        currency: currency,
-        issuer: issuer,
-      }
+      txjson.Amount = { value: String(amount), currency, issuer }
     }
 
     // Add memo if provided
     if (memo) {
-      txjson.Memos = [
-        {
-          Memo: {
-            MemoType: Buffer.from("application/json").toString("hex").toUpperCase(),
-            MemoData: Buffer.from(memo).toString("hex").toUpperCase(),
-          },
-        },
-      ]
+      txjson.Memos = [{
+        Memo: {
+          MemoType: Buffer.from("application/json").toString("hex").toUpperCase(),
+          MemoData: Buffer.from(memo).toString("hex").toUpperCase()
+        }
+      }]
     }
 
-    console.log("📤 Creating Xaman payload with txjson:", JSON.stringify(txjson, null, 2))
+    // Webhook URL for Supabase Edge Function
+    const webhookUrl = process.env.NEXT_PUBLIC_SUPABASE_URL 
+      ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-webhook`
+      : undefined
 
-    // Create Xaman payload
+      console.log("🪝 Webhook URL:", webhookUrl)
+      console.log("🪝 NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL)
+
     const payload: XummTypes.XummPostPayloadBodyJson = {
       txjson,
-      options: {
-        submit: true,
-        expire: 300,
-        return_url: {
-          web: `${baseUrl}/chess`,
-        },
+      options: { 
+        submit: true, 
+        expire: 300, 
+        return_url: { web: baseUrl + "/chess" },
+        ...(webhookUrl && { webhook: webhookUrl }) // Add webhook URL
       },
+      custom_meta: {
+        instruction: `Pay ${amount} ${currency} entry fee`,
+        identifier: `polluxchess-payment-${Date.now()}`,
+      }
     }
 
+    console.log("📤 Creating Xaman payload...")
     const response = await xaman.payload.create(payload)
 
     if (!response?.next?.always) {
-      return NextResponse.json({ ok: false, error: "Failed to create payment request" }, { status: 500 })
+      console.error("❌ Failed to create Xaman payload")
+      return NextResponse.json({ ok: false, error: "Failed to create payment" }, { status: 500 })
     }
 
     console.log("✅ Xaman payload created:", response.uuid)
@@ -103,9 +110,10 @@ export async function POST(req: NextRequest) {
       nextUrl: response.next.always,
       qrUrl: response.refs?.qr_png,
       websocketUrl: response.refs?.websocket_status,
+      network: requestedNetwork
     })
   } catch (err) {
-    console.error("❌ Payment API error:", err)
-    return NextResponse.json({ ok: false, error: "Internal server error" }, { status: 500 })
+    console.error("❌ Payment error:", err)
+    return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 })
   }
 }

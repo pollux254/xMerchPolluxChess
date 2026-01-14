@@ -4,13 +4,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-// Remove the custom Deno declaration - it's already available in Deno runtime
-// declare const Deno: {
-//   env: {
-//     get(key: string): string | undefined
-//   }
-// }
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -41,10 +34,11 @@ serve(async (req: Request) => {
     const body: SignInRequest = await req.json()
     const { returnUrl, network } = body
 
-    const resolvedNetwork = network === "testnet" || network === "mainnet" ? network : "mainnet"
+    // ✅ FIXED: Default to testnet instead of mainnet
+    const resolvedNetwork = network === "testnet" || network === "mainnet" ? network : "testnet"
     const networkId = resolvedNetwork === "testnet" ? 21338 : 21337
 
-    console.log("SignIn request:", { returnUrl })
+    console.log("🔐 SignIn Edge Function - Network:", resolvedNetwork, "NetworkID:", networkId)
 
     const txjson: Record<string, unknown> = {
       TransactionType: "SignIn",
@@ -70,6 +64,8 @@ serve(async (req: Request) => {
       },
     }
 
+    console.log("📤 Creating Xaman SignIn payload with NetworkID:", networkId)
+
     const response = await fetch("https://xumm.app/api/v1/platform/payload", {
       method: "POST",
       headers: {
@@ -90,7 +86,7 @@ serve(async (req: Request) => {
     }
 
     const data = await response.json()
-    console.log("SignIn payload created:", data.uuid)
+    console.log("✅ SignIn payload created:", data.uuid, "for", resolvedNetwork)
 
     return new Response(
       JSON.stringify({

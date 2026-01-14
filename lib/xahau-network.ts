@@ -9,6 +9,9 @@ export function getXahauNetworkFromEnvOrDefault(): XahauNetwork {
 }
 
 export function getXahauNetworkId(network: XahauNetwork): number {
+  // Xahau Network IDs:
+  // Mainnet: 21337
+  // Testnet: 21338
   return network === "testnet" ? 21338 : 21337
 }
 
@@ -19,8 +22,9 @@ export function getXahauRpcUrl(network: XahauNetwork): string {
 }
 
 export function getHookAddress(network: XahauNetwork): string | undefined {
+  // Support both naming conventions for backward compatibility
   const testnet = process.env.NEXT_PUBLIC_HOOK_ADDRESS_TESTNET
-  const mainnet = process.env.NEXT_PUBLIC_HOOK_ADDRESS
+  const mainnet = process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || process.env.NEXT_PUBLIC_HOOK_ADDRESS
+  
   return network === "testnet" ? testnet : mainnet
 }
-

@@ -72,6 +72,14 @@ serve(async (req: Request) => {
     const response = payloadStatus.response
     const payload = payloadStatus.payload
 
+    // ✅ DETAILED DEBUG LOGGING
+    console.log("🔍 FULL RESPONSE OBJECT:")
+    console.log(JSON.stringify(response, null, 2))
+    console.log("🔍 FULL PAYLOAD OBJECT:")
+    console.log(JSON.stringify(payload, null, 2))
+    console.log("🔍 FULL PAYLOAD STATUS:")
+    console.log(JSON.stringify(payloadStatus, null, 2))
+
     if (!response?.dispatched_result) {
       console.log("⚠️ Transaction not submitted")
       return new Response(JSON.stringify({ ok: true, verified: false, reason: "Transaction not submitted" }), {
@@ -82,14 +90,27 @@ serve(async (req: Request) => {
 
     const txResult = response.dispatched_result
     const isSuccess = txResult === "tesSUCCESS"
-    const txDestination = response.destination
-    const networkId = response.networkId
+    
+    // ✅ FIX: Get destination from the RIGHT place!
+    const txDestination = payload?.tx_destination || 
+                         response.destination || 
+                         response.dispatched_to || 
+                         payload?.request_json?.Destination ||
+                         null
+                         
+    const networkId = response.networkId || response.network_id
     const signerAccount = response.account
     const txHash = response.txid
     const amountDrops = payload?.request_json?.Amount
     const amount = amountDrops ? Number(amountDrops) / 1_000_000 : 0
 
-    console.log("💰 Transaction details:", { txHash, amount, destination: txDestination, result: txResult })
+    console.log("💰 Transaction details:", { 
+      txHash, 
+      amount, 
+      destination: txDestination,
+      result: txResult,
+      networkId 
+    })
 
     // Decode memo to check if this is a tournament payment
     let memo = ""
@@ -100,11 +121,15 @@ serve(async (req: Request) => {
         memo = new TextDecoder().decode(
           new Uint8Array(memos[0].Memo.MemoData.match(/.{1,2}/g).map((byte: string) => Number.parseInt(byte, 16))),
         )
+        console.log("📝 Decoded memo:", memo)
+        
         // Try to parse as JSON for tournament data
         try {
           memoData = JSON.parse(memo)
+          console.log("🎮 Parsed memo data:", memoData)
         } catch {
           // Not JSON, regular text memo
+          console.log("📝 Memo is plain text, not JSON")
         }
       } catch (e) {
         console.error("Failed to decode memo:", e)
@@ -115,19 +140,52 @@ serve(async (req: Request) => {
     const isHookPayment = txDestination === HOOK_ADDRESS_TESTNET || txDestination === HOOK_ADDRESS_MAINNET
     const isRegularDonation = txDestination === XAH_DESTINATION
 
+    console.log("🔍 Payment type check:", {
+      txDestination,
+      HOOK_ADDRESS_TESTNET,
+      HOOK_ADDRESS_MAINNET,
+      XAH_DESTINATION,
+      isHookPayment,
+      isRegularDonation
+    })
+
     const verified = isSuccess && (isHookPayment || isRegularDonation)
 
     if (!verified) {
-      console.log("❌ Transaction not verified:", { isSuccess, isHookPayment, isRegularDonation })
+      console.log("❌ Transaction not verified:", { 
+        isSuccess, 
+        isHookPayment, 
+        isRegularDonation,
+        txDestination 
+      })
       return new Response(
         JSON.stringify({
           ok: true,
           verified: false,
-          reason: `Transaction failed or wrong destination`
+          reason: `Transaction failed or wrong destination`,
+          debug: {
+            txDestination,
+            HOOK_ADDRESS_TESTNET,
+            HOOK_ADDRESS_MAINNET,
+            isHookPayment,
+            isRegularDonation
+          }
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
     }
+
+    // ✅ CRITICAL DEBUG - Check database conditions
+    console.log("🔍 Database check:", {
+      hasSUPABASE_URL: !!SUPABASE_URL,
+      hasSUPABASE_SERVICE_ROLE_KEY: !!SUPABASE_SERVICE_ROLE_KEY,
+      isHookPayment,
+      memoData,
+      "memoData?.action": memoData?.action,
+      "memoData?.tournament": memoData?.tournament,
+      "memoData?.player": memoData?.player,
+      willProcess: isHookPayment && memoData?.action === "join" && memoData?.tournament && memoData?.player
+    })
 
     if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
       const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -148,6 +206,8 @@ serve(async (req: Request) => {
             console.error("❌ Tournament not found:", tournamentError)
             throw tournamentError
           }
+
+          console.log("✅ Tournament found:", tournament.id)
 
           // Add player to tournament
           const { error: playerError } = await supabase
@@ -178,6 +238,8 @@ serve(async (req: Request) => {
               message: `Player ${memoData.player} joined tournament ${memoData.tournament}`
             })
 
+          console.log("✅ Transaction logged")
+
           // Check if tournament is full
           const { count } = await supabase
             .from('tournament_players')
@@ -189,6 +251,7 @@ serve(async (req: Request) => {
 
           if (count && count >= tournament.tournament_size) {
             console.log("🎉 Tournament is FULL! Starting...")
+            
             // Tournament is full - start it
             await supabase
               .from('tournaments')

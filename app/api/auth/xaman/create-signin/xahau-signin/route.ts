@@ -16,7 +16,10 @@ export async function POST(req: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
 
     const header = (req.headers.get("x-xahau-network") || "").toLowerCase()
-    const network: XahauNetwork = header === "testnet" || header === "mainnet" ? (header as XahauNetwork) : "mainnet"
+    const network: XahauNetwork = header === "testnet" || header === "mainnet" ? (header as XahauNetwork) : "testnet"
+
+    console.log("🔐 SignIn request - Network header:", header)
+    console.log("🔐 SignIn request - Network selected:", network)
 
     // Check if using Supabase edge function
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
@@ -59,6 +62,8 @@ export async function POST(req: NextRequest) {
     const apiSecret = process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
     const networkId = getXahauNetworkId(network)
 
+    console.log("🔐 Using SDK - NetworkID:", networkId, "for network:", network)
+
     if (!apiKey || !apiSecret) {
       return NextResponse.json(
         { ok: false, error: "Server configuration error: Missing Xaman credentials" },
@@ -86,6 +91,8 @@ export async function POST(req: NextRequest) {
       },
     }
 
+    console.log("🔐 Creating signin payload with NetworkID:", networkId)
+
     const response = await xaman.payload.create(payload)
 
     if (!response?.next?.always) {
@@ -94,6 +101,8 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       )
     }
+
+    console.log("✅ Signin payload created successfully")
 
     return NextResponse.json({
       ok: true,

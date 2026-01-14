@@ -5,19 +5,8 @@ import { useSearchParams } from "next/navigation"
 import { createClient } from "@supabase/supabase-js"
 import { motion } from "framer-motion"
 
-// Hook state (Phase 1): optional read for debugging/verification.
-// This does NOT affect the existing Supabase-based waiting room.
-import { getWaitingRoomState } from "@/lib/xahau-hooks"
-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-// NEW: Network toggle - defaults to testnet if env var not set
-const network = process.env.NEXT_PUBLIC_XAHAU_NETWORK || 'testnet';
-const rpcUrl = network === 'testnet' 
-  ? 'wss://xahau-test.net:51234' 
-  : 'wss://xahau.network:51234'; // mainnet RPC (update later if needed)
-const hookAddress = process.env.NEXT_PUBLIC_HOOK_ADDRESS || (network === 'testnet' ? 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY' : ''); // fallback for testnet
 
 function WaitingRoomContent() {
   const searchParams = useSearchParams()
@@ -27,9 +16,7 @@ function WaitingRoomContent() {
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMessage, setLoadingMessage] = useState("Loading tournament...")
-  const [timeRemaining, setTimeRemaining] = useState<number>(600) // 10 minutes in seconds
-
-  const [hookWaitingRoom, setHookWaitingRoom] = useState<any>(null)
+  const [timeRemaining, setTimeRemaining] = useState<number>(600)
 
   useEffect(() => {
     if (!tournamentId) {
@@ -38,7 +25,6 @@ function WaitingRoomContent() {
       return
     }
 
-    // Check if player is still logged in
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'playerID' && e.newValue === null) {
         console.log("🚪 Player logged out detected - leaving waiting room")
@@ -62,11 +48,9 @@ function WaitingRoomContent() {
 
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // ✅ ROBUST: Fetch tournament with multiple retries and NEVER redirect back
     async function fetchTournament() {
       setLoadingMessage("Loading tournament...")
       
-      // Wait 1 second for any final DB propagation
       await new Promise(resolve => setTimeout(resolve, 1000))
       
       const maxAttempts = 5
@@ -95,17 +79,13 @@ function WaitingRoomContent() {
         }
       }
       
-      // ❌ After all attempts, tournament genuinely doesn't exist
-      // 🚨 CRITICAL: DO NOT REDIRECT BACK TO CHESS (this causes infinite loop)
       console.error("💥 All attempts failed - Tournament not found")
       setLoadingMessage("Tournament not found")
       setLoading(false)
       
-      // Show error state without redirecting
       alert("⚠️ Tournament could not be loaded.\n\nThis tournament may have been cancelled.\n\nPlease use the button below to return to the lobby.")
     }
 
-    // Fetch players
     async function fetchPlayers() {
       const { data, error } = await supabase
         .from("tournament_players")
@@ -124,21 +104,6 @@ function WaitingRoomContent() {
     fetchTournament()
     fetchPlayers()
 
-    // Optional: read Hook waiting room namespace if Hook address is configured.
-    // This is useful to verify the Hook is deployed and state can be read.
-    ;(async () => {
-      if (!hookAddress) return
-
-      try {
-        // NEW: Use dynamic RPC for testnet/mainnet
-        const resp = await getWaitingRoomState();
-        setHookWaitingRoom(resp)
-      } catch (err) {
-        console.warn("Hook waiting room read failed (non-fatal):", err)
-      }
-    })()
-
-    // ✨ 10-minute countdown timer
     const countdownInterval = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
@@ -149,13 +114,11 @@ function WaitingRoomContent() {
       })
     }, 1000)
 
-    // ✨ Auto-timeout after 10 minutes
-    const timeoutDuration = 10 * 60 * 1000 // 10 minutes
+    const timeoutDuration = 10 * 60 * 1000
     const timeoutTimer = setTimeout(async () => {
       const playerID = localStorage.getItem('playerID')
       if (!playerID) return
 
-      // Check if tournament is still waiting
       const { data: currentTournament } = await supabase
         .from('tournaments')
         .select('status')
@@ -169,7 +132,6 @@ function WaitingRoomContent() {
 
       console.log('⏰ Waiting room timeout - requesting refund and leaving')
       
-      // Request refund
       try {
         const refundRes = await fetch('/api/tournaments/refund', {
           method: 'POST',
@@ -191,7 +153,6 @@ function WaitingRoomContent() {
         alert('⏰ Timeout reached. Please contact support for refund if needed.')
       }
 
-      // Remove player from tournament
       try {
         await fetch('/api/tournaments/leave', {
           method: 'POST',
@@ -208,7 +169,6 @@ function WaitingRoomContent() {
       window.location.href = '/chess'
     }, timeoutDuration)
 
-    // Subscribe to real-time updates
     const tournamentsChannel = supabase
       .channel(`tournament-${tournamentId}`)
       .on(
@@ -224,7 +184,6 @@ function WaitingRoomContent() {
           if (payload.new) {
             setTournament(payload.new)
             
-            // Redirect to game if tournament starts
             if (payload.new.status === "in_progress") {
               clearTimeout(timeoutTimer)
               clearInterval(countdownInterval)
@@ -264,7 +223,6 @@ function WaitingRoomContent() {
     }
   }, [tournamentId])
 
-  // ✅ UPDATED: Handle cancel button with force cleanup
   const handleCancel = async () => {
     const confirmCancel = confirm("Are you sure you want to leave the waiting room?\n\nYour entry fee will be refunded.")
     if (!confirmCancel) return
@@ -275,7 +233,6 @@ function WaitingRoomContent() {
     try {
       console.log("🚪 Player cancelling from waiting room...")
       
-      // 1. Request refund
       await fetch('/api/tournaments/refund', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -286,7 +243,6 @@ function WaitingRoomContent() {
         })
       })
       
-      // 2. Leave tournament
       await fetch('/api/tournaments/leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -296,7 +252,6 @@ function WaitingRoomContent() {
         })
       })
       
-      // 3. ✅ NEW: Force cleanup to remove any stuck entries
       console.log("🧹 Running cleanup after cancel...")
       await fetch('/api/tournaments/cleanup', {
         method: 'POST',
@@ -306,16 +261,13 @@ function WaitingRoomContent() {
         })
       })
       
-      // 4. ✅ NEW: Clear any cached state
       sessionStorage.clear()
       
-      // 5. ✅ NEW: Small delay to ensure DB writes complete
       await new Promise(resolve => setTimeout(resolve, 500))
       
       console.log("✅ Cancel complete, redirecting to lobby...")
       alert("✅ Left waiting room. Your entry fee will be refunded.")
       
-      // 6. Redirect to chess
       window.location.href = '/chess'
     } catch (err) {
       console.error("Cancel error:", err)
@@ -362,18 +314,12 @@ function WaitingRoomContent() {
   const spotsRemaining = tournamentSize - playerCount
   const isFull = playerCount >= tournamentSize
 
-  // Format time remaining as MM:SS
   const minutes = Math.floor(timeRemaining / 60)
   const seconds = timeRemaining % 60
   const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-4 relative">
-      {/* NEW: Network indicator (debug - remove later if not needed) */}
-      <div className="absolute top-4 right-4 bg-gray-800/70 text-white px-3 py-1 rounded-full text-sm z-50">
-        Network: {network.toUpperCase()}
-      </div>
-
+    <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -384,7 +330,6 @@ function WaitingRoomContent() {
             Tournament Lobby
           </h1>
 
-          {/* Timeout countdown */}
           <div className="bg-orange-900/30 backdrop-blur-xl rounded-2xl p-4 mb-4 border border-orange-500/40 text-center">
             <p className="text-xs text-orange-200 mb-1">Auto-leave and refund in</p>
             <p className={`text-3xl md:text-4xl font-black ${timeRemaining < 60 ? 'text-red-400 animate-pulse' : 'text-orange-300'}`}>
@@ -411,16 +356,6 @@ function WaitingRoomContent() {
               </div>
             </div>
           </div>
-
-          {/* Phase 1 debug: Hook state snapshot (hidden unless available) */}
-          {hookWaitingRoom && (
-            <div className="bg-gray-900/40 backdrop-blur rounded-2xl p-3 mb-4 border border-purple-500/20">
-              <p className="text-xs text-purple-200 mb-2">🪝 Hook waiting room state (debug) - {network.toUpperCase()}</p>
-              <pre className="text-[11px] overflow-auto max-h-32 text-gray-200">
-                {JSON.stringify(hookWaitingRoom, null, 2)}
-              </pre>
-            </div>
-          )}
 
           <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-5 md:p-6 shadow-2xl border border-purple-500/40 mb-4">
             <h2 className="text-xl md:text-2xl font-bold mb-3 text-center">
@@ -452,7 +387,6 @@ function WaitingRoomContent() {
           <div className="bg-gray-800/70 backdrop-blur-2xl rounded-3xl p-5 md:p-6 shadow-2xl border border-purple-500/40 mb-4">
             <h3 className="text-lg md:text-xl font-bold mb-3">Players Joined</h3>
 
-            {/* Only the player list scrolls */}
             <div className="max-h-[32vh] overflow-y-auto scrollable-container pr-1 space-y-2">
             {players.map((player, index) => (
               <motion.div
@@ -486,9 +420,7 @@ function WaitingRoomContent() {
             ))}
             </div>
           </div>
-        
 
-        {/* ✅ UPDATED: Cancel Button with Force Cleanup */}
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
