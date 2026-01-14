@@ -129,16 +129,19 @@ export default function Chess() {
             status: data.status
           })
 
-          if (data.status === "waiting") {
-            setTimeout(() => {
-              console.log("🚀 Auto-redirecting to waiting room...")
-              window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
-            }, 1500)
-          } else if (data.status === "in_progress" || data.status === "in-progress") {
-            setTimeout(() => {
-              console.log("🚀 Auto-redirecting to active game...")
-              window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
-            }, 1500)
+          // Only redirect if we're on the chess page (prevent infinite loops)
+          if (window.location.pathname === '/chess') {
+            if (data.status === "waiting") {
+              setTimeout(() => {
+                console.log("🚀 Auto-redirecting to waiting room...")
+                window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
+              }, 1500)
+            } else if (data.status === "in_progress" || data.status === "in-progress") {
+              setTimeout(() => {
+                console.log("🚀 Auto-redirecting to active game...")
+                window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
+              }, 1500)
+            }
           }
         } else {
           console.log("ℹ️ No existing tournament found")
