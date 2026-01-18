@@ -37,6 +37,7 @@ function GameMultiplayerContent() {
   const gameId = searchParams.get("gameId")
   
   const [game, setGame] = useState<Chess>(new Chess())
+  const [gamePosition, setGamePosition] = useState<string>("start")
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [playerID, setPlayerID] = useState<string | null>(null)
   const [myColor, setMyColor] = useState<'white' | 'black' | null>(null)
@@ -44,7 +45,6 @@ function GameMultiplayerContent() {
   const [blackTime, setBlackTime] = useState(1200)
   const [countdown, setCountdown] = useState(5)
   const [gameStarted, setGameStarted] = useState(false)
-  const [moveFrom, setMoveFrom] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -106,6 +106,7 @@ function GameMultiplayerContent() {
       if (data.game_state?.fen) {
         const newGame = new Chess(data.game_state.fen)
         setGame(newGame)
+        setGamePosition(data.game_state.fen)
       }
 
       // Set timers
@@ -192,7 +193,7 @@ function GameMultiplayerContent() {
   }
 
   // Handle piece drop (make move)
-  async function onDrop(sourceSquare: string, targetSquare: string) {
+  async function onDrop(sourceSquare: string, targetSquare: string): Promise<boolean> {
     // Check if it's my turn
     const isMyTurn = (game.turn() === 'w' && myColor === 'white') || 
                      (game.turn() === 'b' && myColor === 'black')
@@ -216,6 +217,9 @@ function GameMultiplayerContent() {
       }
 
       console.log("✅ Legal move:", move.san)
+
+      // Update local position
+      setGamePosition(game.fen())
 
       // Update database with new game state
       const newGameState = {
@@ -264,7 +268,6 @@ function GameMultiplayerContent() {
 
       if (error) throw error
 
-      setGame(new Chess(game.fen()))
       return true
     } catch (err) {
       console.error("Error making move:", err)
@@ -274,7 +277,7 @@ function GameMultiplayerContent() {
 
   // Calculate material tiebreaker (higher material wins)
   function calculateMaterialTiebreaker(): string {
-    const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
+    const pieceValues: { [key: string]: number } = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
     
     let whiteValue = 0
     let blackValue = 0
@@ -348,6 +351,7 @@ function GameMultiplayerContent() {
           // Update game position
           if (newState.game_state?.fen) {
             setGame(new Chess(newState.game_state.fen))
+            setGamePosition(newState.game_state.fen)
           }
 
           // Update timers
@@ -471,7 +475,7 @@ function GameMultiplayerContent() {
           <div className="lg:col-span-1">
             <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl p-4">
               <Chessboard
-                position={game.fen()}
+                position={gamePosition}
                 onPieceDrop={onDrop}
                 boardOrientation={myColor === 'white' ? 'white' : 'black'}
                 customBoardStyle={{

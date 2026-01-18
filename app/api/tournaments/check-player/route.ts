@@ -1,57 +1,98 @@
-import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+// app/api/tournaments/check-player/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-export async function GET(req: NextRequest) {
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url)
-    const playerAddress = searchParams.get("address")
+    const { searchParams } = new URL(request.url)
+    const address = searchParams.get('address')
 
-    if (!playerAddress) {
-      return NextResponse.json(
-        { error: "Missing player address" },
-        { status: 400 }
-      )
+    if (!address) {
+      return NextResponse.json({ error: 'Address required' }, { status: 400 })
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // Check if player is in any active tournament
-    const { data: playerData, error } = await supabase
-      .from("tournament_players")
-      .select("tournament_id, status, tournaments(status)")
-      .eq("player_address", playerAddress)
-      .in("status", ["waiting", "active"])
-      .order("joined_at", { ascending: false })
+    // Step 1: Find the player's ID from tournament_players table
+    const { data: players, error: playerError } = await supabase
+      .from('tournament_players')
+      .select('id')
+      .eq('player_address', address)
       .limit(1)
-      .single()
 
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 = no rows returned (not an error)
-      console.error("Supabase error:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (playerError) {
+      console.error('Error finding player:', playerError)
+      return NextResponse.json({ error: playerError.message }, { status: 500 })
     }
 
-    if (!playerData) {
+    if (!players || players.length === 0) {
+      // Player doesn't exist yet - they can join
       return NextResponse.json({
-        inTournament: false,
-        tournamentId: null,
-        status: null,
+        hasActiveGame: false
       })
     }
 
+    const playerId = players[0].id
+
+    // Step 2: Check for active games where this player is white or black
+    const { data: activeGames, error: gameError } = await supabase
+      .from('tournament_games')
+      .select('*')
+      .or(`player_white.eq.${playerId},player_black.eq.${playerId}`)
+      .eq('status', 'in_progress')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (gameError) {
+      console.error('Error checking games:', gameError)
+      return NextResponse.json({ error: gameError.message }, { status: 500 })
+    }
+
+    // If there's an active game, check if it's actually still valid
+    if (activeGames && activeGames.length > 0) {
+      const game = activeGames[0]
+      
+      // Check if game is stale (created more than 30 minutes ago)
+      const gameAge = Date.now() - new Date(game.created_at).getTime()
+      const thirtyMinutesInMs = 30 * 60 * 1000
+      
+      if (gameAge > thirtyMinutesInMs) {
+        console.log('🧹 Found stale game, marking as abandoned:', game.id)
+        
+        // Mark the stale game as abandoned/completed
+        await supabase
+          .from('tournament_games')
+          .update({
+            status: 'completed',
+            result_reason: 'abandoned',
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', game.id)
+        
+        // Return no active game
+        return NextResponse.json({
+          hasActiveGame: false,
+          message: 'Stale game cleaned up'
+        })
+      }
+
+      // Game is fresh and valid
+      return NextResponse.json({
+        hasActiveGame: true,
+        gameId: game.id,
+        tournamentId: game.tournament_id
+      })
+    }
+
+    // No active games found
     return NextResponse.json({
-      inTournament: true,
-      tournamentId: playerData.tournament_id,
-      status: (playerData.tournaments as any)?.status || "unknown",
+      hasActiveGame: false
     })
   } catch (err: any) {
-    console.error("Check player error:", err)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    console.error('Error in check-player:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

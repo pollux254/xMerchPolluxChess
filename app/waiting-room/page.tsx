@@ -2,11 +2,9 @@
 
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
+import { getSupabaseClient } from "@/lib/supabase-client"
+import { verifyWalletMatch } from "@/lib/middleware/verify-wallet"
 import { motion } from "framer-motion"
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 function WaitingRoomContent() {
   const searchParams = useSearchParams()
@@ -17,6 +15,7 @@ function WaitingRoomContent() {
   const [loading, setLoading] = useState(true)
   const [loadingMessage, setLoadingMessage] = useState("Loading tournament...")
   const [timeRemaining, setTimeRemaining] = useState<number>(600)
+  const [walletVerified, setWalletVerified] = useState(false)
 
   useEffect(() => {
     if (!tournamentId) {
@@ -46,17 +45,47 @@ function WaitingRoomContent() {
     
     const statusCheckInterval = setInterval(checkPlayerStatus, 2000)
 
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabase = getSupabaseClient() // Use singleton client
 
-    async function fetchTournament() {
-      setLoadingMessage("Loading tournament...")
-      
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const maxAttempts = 5
-      
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        console.log(`🔍 Waiting room: Attempt ${attempt}/${maxAttempts} to fetch tournament ${tournamentId}`)
+    // ============================================================================
+    // WALLET VERIFICATION - CRITICAL SECURITY CHECK
+    // ============================================================================
+    async function verifyWallet() {
+      const playerID = localStorage.getItem('playerID')
+      if (!playerID) {
+        alert("❌ No wallet connected.\n\nPlease connect your wallet first.")
+        window.location.href = "/chess"
+        return false
+      }
+
+      console.log("🔐 Verifying wallet match...")
+      console.log("  Logged in as:", playerID)
+      console.log("  Tournament ID:", tournamentId)
+
+      const verification = await verifyWalletMatch(tournamentId, playerID)
+
+      if (!verification.isValid) {
+        console.error("❌ WALLET MISMATCH DETECTED!")
+        alert(`❌ SECURITY ERROR: Wallet Mismatch\n\n${verification.message}\n\nLogged in wallet: ${playerID.slice(0, 10)}...${playerID.slice(-6)}\n\nThis wallet did not pay for this tournament.\n\nReturning to lobby.`)
+        window.location.href = "/chess"
+        return false
+      }
+
+      console.log("✅ Wallet verified successfully")
+      setWalletVerified(true)
+      return true
+    }
+
+    // ============================================================================
+    // FETCH STATUS FROM SERVER
+    // ============================================================================
+    async function fetchTournamentStatus() {
+      try {
+        // First verify wallet
+        const isVerified = await verifyWallet()
+        if (!isVerified) return
+
+        console.log("🔍 Fetching tournament status from server...")
         
         const { data, error } = await supabase
           .from("tournaments")
@@ -64,26 +93,55 @@ function WaitingRoomContent() {
           .eq("id", tournamentId)
           .single()
 
-        if (!error && data) {
-          console.log(`✅ SUCCESS on attempt ${attempt}! Tournament loaded:`, data.id)
-          setTournament(data)
+        if (error || !data) {
+          console.error("❌ Tournament not found:", error)
+          setLoadingMessage("Tournament not found")
           setLoading(false)
+          alert("⚠️ Tournament not found or has expired.\n\nReturning to lobby.")
+          window.location.href = "/chess"
           return
         }
-        
-        console.error(`❌ Attempt ${attempt} failed:`, error?.message || 'Unknown error')
-        
-        if (attempt < maxAttempts) {
-          setLoadingMessage(`Retrying... (${attempt}/${maxAttempts})`)
-          await new Promise(resolve => setTimeout(resolve, 2000))
+
+        // Check if tournament was cancelled/expired
+        if (data.status === 'cancelled') {
+          console.log("🧹 Tournament was cancelled (expired)")
+          alert("⏰ Tournament expired - not enough players joined in time.\n\nReturning to lobby.")
+          window.location.href = "/chess"
+          return
         }
+
+        // Calculate time remaining from SERVER timestamp
+        const createdAt = new Date(data.created_at).getTime()
+        const expiresAt = data.expires_at ? new Date(data.expires_at).getTime() : createdAt + (10 * 60 * 1000)
+        const now = Date.now()
+        const secondsRemaining = Math.max(0, Math.floor((expiresAt - now) / 1000))
+
+        console.log(`⏰ Time remaining (from server): ${secondsRemaining}s`)
+
+        // If expired on server side
+        if (secondsRemaining <= 0 && data.status === 'waiting') {
+          console.log("⏰ Tournament expired on server")
+          alert("⏰ Tournament expired - not enough players joined in time.\n\nReturning to lobby.")
+          window.location.href = "/chess"
+          return
+        }
+
+        setTournament(data)
+        setTimeRemaining(secondsRemaining)
+        setLoading(false)
+
+        // Check if tournament started
+        if (data.status === "in_progress") {
+          console.log("🚀 Tournament started!")
+          setTimeout(() => {
+            window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
+          }, 2000)
+        }
+
+      } catch (err) {
+        console.error("💥 Error fetching tournament:", err)
+        setLoading(false)
       }
-      
-      console.error("💥 All attempts failed - Tournament not found")
-      setLoadingMessage("Tournament not found")
-      setLoading(false)
-      
-      alert("⚠️ Tournament could not be loaded.\n\nThis tournament may have been cancelled.\n\nPlease use the button below to return to the lobby.")
     }
 
     async function fetchPlayers() {
@@ -91,6 +149,7 @@ function WaitingRoomContent() {
         .from("tournament_players")
         .select("*")
         .eq("tournament_id", tournamentId)
+        .eq("status", "joined")
         .order("player_order", { ascending: true })
 
       if (error) {
@@ -101,74 +160,23 @@ function WaitingRoomContent() {
       setPlayers(data || [])
     }
 
-    fetchTournament()
+    // Initial fetch
+    fetchTournamentStatus()
     fetchPlayers()
 
-    const countdownInterval = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-
-    const timeoutDuration = 10 * 60 * 1000
-    const timeoutTimer = setTimeout(async () => {
-      const playerID = localStorage.getItem('playerID')
-      if (!playerID) return
-
-      const { data: currentTournament } = await supabase
-        .from('tournaments')
-        .select('status')
-        .eq('id', tournamentId)
-        .single()
-
-      if (currentTournament?.status !== 'waiting') {
-        console.log('⏰ Tournament already started or finished - no timeout')
-        return
+    // ============================================================================
+    // POLL SERVER EVERY 3 SECONDS
+    // ============================================================================
+    const statusPollInterval = setInterval(() => {
+      if (walletVerified) {
+        fetchTournamentStatus()
+        fetchPlayers()
       }
+    }, 3000)
 
-      console.log('⏰ Waiting room timeout - requesting refund and leaving')
-      
-      try {
-        const refundRes = await fetch('/api/tournaments/refund', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playerAddress: playerID,
-            tournamentId: tournamentId,
-            reason: 'Waiting room timeout (10 minutes)'
-          })
-        })
-
-        if (refundRes.ok) {
-          alert('⏰ No match found after 10 minutes. Your entry fee has been refunded!\n\nYou can try joining again.')
-        } else {
-          alert('⏰ No match found after 10 minutes. Please contact support for refund.')
-        }
-      } catch (err) {
-        console.error('Refund request failed:', err)
-        alert('⏰ Timeout reached. Please contact support for refund if needed.')
-      }
-
-      try {
-        await fetch('/api/tournaments/leave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playerAddress: playerID,
-            tournamentId: tournamentId
-          })
-        })
-      } catch (err) {
-        console.error('Failed to leave tournament:', err)
-      }
-
-      window.location.href = '/chess'
-    }, timeoutDuration)
-
+    // ============================================================================
+    // REAL-TIME SUBSCRIPTIONS
+    // ============================================================================
     const tournamentsChannel = supabase
       .channel(`tournament-${tournamentId}`)
       .on(
@@ -180,16 +188,21 @@ function WaitingRoomContent() {
           filter: `id=eq.${tournamentId}`,
         },
         (payload: any) => {
-          console.log("Tournament updated:", payload)
+          console.log("🔄 Tournament updated via realtime:", payload)
           if (payload.new) {
             setTournament(payload.new)
             
             if (payload.new.status === "in_progress") {
-              clearTimeout(timeoutTimer)
-              clearInterval(countdownInterval)
+              clearInterval(statusPollInterval)
               setTimeout(() => {
                 window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
               }, 2000)
+            }
+
+            if (payload.new.status === "cancelled") {
+              clearInterval(statusPollInterval)
+              alert("⏰ Tournament was cancelled.\n\nReturning to lobby.")
+              window.location.href = "/chess"
             }
           }
         }
@@ -207,21 +220,23 @@ function WaitingRoomContent() {
           filter: `tournament_id=eq.${tournamentId}`,
         },
         (payload: any) => {
-          console.log("Players updated:", payload)
+          console.log("🔄 Players updated via realtime:", payload)
           fetchPlayers()
         }
       )
       .subscribe()
 
+    // ============================================================================
+    // CLEANUP
+    // ============================================================================
     return () => {
       window.removeEventListener('storage', handleStorageChange)
       clearInterval(statusCheckInterval)
-      clearTimeout(timeoutTimer)
-      clearInterval(countdownInterval)
+      clearInterval(statusPollInterval)
       supabase.removeChannel(tournamentsChannel)
       supabase.removeChannel(playersChannel)
     }
-  }, [tournamentId])
+  }, [tournamentId, walletVerified])
 
   const handleCancel = async () => {
     const confirmCancel = confirm("Are you sure you want to leave the waiting room?\n\nYour entry fee will be refunded.")
@@ -283,7 +298,7 @@ function WaitingRoomContent() {
             <span className="text-3xl">♟️</span>
           </div>
           <p className="text-2xl font-bold text-white mb-2">{loadingMessage}</p>
-          <p className="text-sm text-purple-300">Setting up your tournament...</p>
+          <p className="text-sm text-purple-300">Verifying wallet and loading tournament...</p>
         </div>
       </div>
     )
@@ -330,13 +345,22 @@ function WaitingRoomContent() {
             Tournament Lobby
           </h1>
 
+          {/* Wallet Verified Indicator */}
+          {walletVerified && (
+            <div className="bg-emerald-900/30 backdrop-blur-xl rounded-xl p-2 mb-4 border border-emerald-500/40 text-center">
+              <p className="text-xs text-emerald-200">
+                ✅ Wallet Verified
+              </p>
+            </div>
+          )}
+
           <div className="bg-orange-900/30 backdrop-blur-xl rounded-2xl p-4 mb-4 border border-orange-500/40 text-center">
-            <p className="text-xs text-orange-200 mb-1">Auto-leave and refund in</p>
+            <p className="text-xs text-orange-200 mb-1">Tournament expires in</p>
             <p className={`text-3xl md:text-4xl font-black ${timeRemaining < 60 ? 'text-red-400 animate-pulse' : 'text-orange-300'}`}>
               {timeString}
             </p>
             <p className="text-[11px] text-orange-200/70 mt-1">
-              If no match is found within 10 minutes, you'll be automatically refunded
+              Based on server time (not your computer clock)
             </p>
           </div>
 
