@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation"
 import { useEffect, useState, useRef } from "react"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
-import { BOT_PROFILE_BY_ID } from "@/lib/bots/bot-profiles"
+import { BOT_PROFILE_BY_ID, getBotDifficultyByRank } from "@/lib/bots/bot-profiles"
 import { BOT_PROFILES } from "@/lib/bots/bot-profiles"
 import { getBotThinkingTimeSeconds } from "@/lib/bots/thinking-time"
 import { StockfishEngine, getStockfishParams } from "@/lib/stockfish/engine"
+import { getSupabaseClient } from "@/lib/supabase-client"
 
 function GameContent() {
   const searchParams = useSearchParams()
@@ -45,6 +46,15 @@ function GameContent() {
   const engineInitializedRef = useRef(false)
   const initRetryCountRef = useRef(0)
   const maxRetries = 3
+
+  // Database persistence state
+  const [gameId, setGameId] = useState<string | null>(null)
+  const [lastMoveTimestamp, setLastMoveTimestamp] = useState<number>(Date.now())
+  const [gameLoaded, setGameLoaded] = useState(false)
+  const [firstMoveMade, setFirstMoveMade] = useState(false)
+  const [gameStartedAt, setGameStartedAt] = useState<Date | null>(null)
+  const gameLoadedRef = useRef(false)
+  const supabase = getSupabaseClient()
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -144,6 +154,152 @@ function GameContent() {
     }
   }, [])
 
+  // GAME RESTORATION & CREATION - Check for existing bot game or create new one
+  useEffect(() => {
+    if (gameLoadedRef.current) return
+    if (!engineReady) return
+    if (playerID === "Guest") return
+    if (matchmaking) return // Wait for matchmaking to finish
+    if (!bot && mode === "bot_matchmaking") return // Wait for bot to be selected
+
+    gameLoadedRef.current = true
+
+    const loadOrCreateGame = async () => {
+      try {
+        console.log("🎮 [BotGame] Checking for existing bot game...")
+        
+        // Check for existing active bot game
+        const { data: existingGames, error: queryError } = await supabase
+          .from('tournament_games')
+          .select('*')
+          .eq('game_type', 'bot')
+          .eq('status', 'active')
+          .or(`player_white.eq.${playerID},player_black.eq.${playerID}`)
+          .limit(1)
+
+        if (queryError) {
+          console.error("🎮 [BotGame] Query error:", queryError)
+        }
+
+        if (existingGames && existingGames.length > 0) {
+          // Restore existing game
+          const existingGame = existingGames[0]
+          console.log("🎮 [BotGame] Restoring existing game:", existingGame.id)
+
+          setGameId(existingGame.id)
+          setFirstMoveMade(existingGame.first_move_made || false)
+          setGameStartedAt(new Date(existingGame.started_at))
+
+          // Restore board position
+          const restoredGame = new Chess(existingGame.game_state)
+          setGame(restoredGame)
+          setFen(existingGame.game_state)
+
+          // Determine player color
+          const playerIsWhite = existingGame.player_white === playerID
+          setIsPlayerWhite(playerIsWhite)
+
+          // Calculate elapsed time since last move
+          const now = Date.now()
+          const lastMoveTime = new Date(existingGame.last_move_at).getTime()
+          const elapsedSeconds = Math.floor((now - lastMoveTime) / 1000)
+
+          console.log("🎮 [BotGame] Time since last move:", elapsedSeconds, "seconds")
+
+          // Calculate remaining times
+          const whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - (existingGame.current_turn === 'white' ? elapsedSeconds : 0))
+          const blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - (existingGame.current_turn === 'black' ? elapsedSeconds : 0))
+
+          if (playerIsWhite) {
+            setPlayerTime(whiteTimeRemaining)
+            setBotTime(blackTimeRemaining)
+          } else {
+            setPlayerTime(blackTimeRemaining)
+            setBotTime(whiteTimeRemaining)
+          }
+
+          setLastMoveTimestamp(lastMoveTime)
+
+          // Set active player based on current turn
+          const currentTurn = restoredGame.turn()
+          const isPlayerTurn = currentTurn === (playerIsWhite ? 'w' : 'b')
+          setActivePlayer(isPlayerTurn ? 'player' : 'bot')
+
+          setGameLoaded(true)
+          setStatus(isPlayerTurn ? "Your turn! ♟️" : "Bot's turn ♘")
+
+          console.log("🎮 [BotGame] Game restored successfully")
+
+        } else {
+          // Create new game
+          console.log("🎮 [BotGame] No existing game found, creating new game...")
+
+          // Randomly assign player color (coinflip)
+          const playerIsWhite = playerColorParam === "white" ? true : playerColorParam === "black" ? false : Math.random() < 0.5
+          setIsPlayerWhite(playerIsWhite)
+
+          // Get bot difficulty and rank
+          const botRank = bot?.rank ?? 300
+          const botDifficulty = getBotDifficultyByRank(botRank)
+
+          const newGameData = {
+            tournament_id: 'BOT_GAME',
+            game_type: 'bot',
+            bot_difficulty: botDifficulty,
+            bot_rank: botRank,
+            player_white: playerIsWhite ? playerID : null,
+            player_black: playerIsWhite ? null : playerID,
+            current_turn: 'white',
+            white_time_remaining: 1200,
+            black_time_remaining: 1200,
+            last_move_at: new Date().toISOString(),
+            first_move_made: false,
+            started_at: new Date().toISOString(),
+            status: 'active',
+            game_state: game.fen()
+          }
+
+          console.log("🎮 [BotGame] Creating new game with data:", newGameData)
+
+          const { data: newGame, error: insertError } = await supabase
+            .from('tournament_games')
+            .insert([newGameData])
+            .select()
+            .single()
+
+          if (insertError) {
+            console.error("🎮 [BotGame] Failed to create game:", insertError)
+            setStatus("Failed to create game. Please refresh.")
+            return
+          }
+
+          console.log("🎮 [BotGame] New game created:", newGame.id)
+
+          setGameId(newGame.id)
+          setFirstMoveMade(false)
+          setGameStartedAt(new Date(newGame.started_at))
+          setLastMoveTimestamp(Date.now())
+          setGameLoaded(true)
+
+          // Set initial times
+          setPlayerTime(1200)
+          setBotTime(1200)
+
+          // Set active player (white goes first)
+          const isPlayerTurn = playerIsWhite
+          setActivePlayer(isPlayerTurn ? 'player' : 'bot')
+          setStatus(isPlayerTurn ? "Your turn! ♟️" : "Bot's turn ♘")
+        }
+
+      } catch (error) {
+        console.error("🎮 [BotGame] Error loading/creating game:", error)
+        setStatus("Error loading game. Please refresh.")
+      }
+    }
+
+    loadOrCreateGame()
+  }, [engineReady, playerID, matchmaking, bot, mode, playerColorParam])
+
   useEffect(() => {
     if (matchmaking) {
       setIsPlayerWhite(null)
@@ -231,8 +387,37 @@ function GameContent() {
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
+  const handleResign = async () => {
+    if (!gameId || game.isGameOver()) return
+
+    const confirmed = confirm("Are you sure you want to resign?")
+    if (!confirmed) return
+
+    console.log("🎮 [BotGame] Player resigned")
+
+    const opponentWallet = isPlayerWhite ? null : playerID // Bot doesn't have wallet
+    const playerWallet = playerID
+
+    await supabase
+      .from('tournament_games')
+      .update({
+        status: 'completed',
+        result_reason: 'resignation',
+        winner: opponentWallet || 'bot', // Bot wins
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', gameId)
+
+    setStatus("You resigned. Bot wins!")
+
+    setTimeout(() => {
+      window.location.href = '/chess'
+    }, 2000)
+  }
+
   const onPieceDrop = ({ sourceSquare, targetSquare }: any): boolean => {
     if (isPlayerWhite === null || !targetSquare) return false
+    if (!gameId) return false
 
     const playerColor = isPlayerWhite ? "w" : "b"
     if (game.turn() !== playerColor) return false
@@ -247,13 +432,49 @@ function GameContent() {
 
       if (move === null) return false
 
+      // Calculate elapsed time since last move
+      const now = Date.now()
+      const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
+      
+      // Update times
+      const updatedPlayerTime = Math.max(0, playerTime - elapsedSeconds)
+      const newWhiteTime = isPlayerWhite ? updatedPlayerTime : botTime
+      const newBlackTime = isPlayerWhite ? botTime : updatedPlayerTime
+
+      console.log("🎮 [BotGame] Player move:", move.san, "Elapsed:", elapsedSeconds, "s")
+
+      // Update database asynchronously (fire-and-forget)
+      supabase
+        .from('tournament_games')
+        .update({
+          game_state: gameCopy.fen(),
+          last_move_at: new Date().toISOString(),
+          current_turn: gameCopy.turn() === 'w' ? 'white' : 'black',
+          first_move_made: true,
+          white_time_remaining: newWhiteTime,
+          black_time_remaining: newBlackTime
+        })
+        .eq('id', gameId)
+        .then(({ error }) => {
+          if (error) {
+            console.error("🎮 [BotGame] Failed to update game:", error)
+          } else {
+            console.log("🎮 [BotGame] Player move saved to database")
+          }
+        })
+
+      // Update local state
       setGame(gameCopy)
       setFen(gameCopy.fen())
+      setPlayerTime(updatedPlayerTime)
+      setLastMoveTimestamp(now)
+      setFirstMoveMade(true)
       setActivePlayer("bot")
       setStatus("Bot's turn ♘")
 
       return true
     } catch (error) {
+      console.error("🎮 [BotGame] Error in onPieceDrop:", error)
       return false
     }
   }
@@ -303,8 +524,41 @@ function GameContent() {
 
         if (!move) throw new Error(`Illegal move: ${best}`)
 
+        // Calculate elapsed time and update times
+        const now = Date.now()
+        const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
+        const updatedBotTime = Math.max(0, botTime - elapsedSeconds)
+        const newWhiteTime = isPlayerWhite ? playerTime : updatedBotTime
+        const newBlackTime = isPlayerWhite ? updatedBotTime : playerTime
+
+        console.log("🎮 [BotGame] Bot move:", move.san, "Elapsed:", elapsedSeconds, "s")
+
+        // Update database asynchronously
+        if (gameId) {
+          supabase
+            .from('tournament_games')
+            .update({
+              game_state: gameCopy.fen(),
+              last_move_at: new Date().toISOString(),
+              current_turn: gameCopy.turn() === 'w' ? 'white' : 'black',
+              white_time_remaining: newWhiteTime,
+              black_time_remaining: newBlackTime
+            })
+            .eq('id', gameId)
+            .then(({ error }) => {
+              if (error) {
+                console.error("🎮 [BotGame] Failed to update bot move:", error)
+              } else {
+                console.log("🎮 [BotGame] Bot move saved to database")
+              }
+            })
+        }
+
+        // Update local state
         setGame(gameCopy)
         setFen(gameCopy.fen())
+        setBotTime(updatedBotTime)
+        setLastMoveTimestamp(now)
         setActivePlayer("player")
         setStatus("Your turn! ♟️")
         
@@ -543,10 +797,21 @@ function GameContent() {
               {status}
             </p>
 
+            {!game.isGameOver() && gameId && (
+              <div className="mt-3 flex justify-center">
+                <button
+                  onClick={handleResign}
+                  className="min-h-11 rounded-2xl px-6 py-3 text-base font-bold bg-red-600 hover:bg-red-500 shadow-xl border border-red-400/40 transition-all"
+                >
+                  Resign
+                </button>
+              </div>
+            )}
+
             {game.isGameOver() && (
               <div className="mt-3 flex justify-center">
                 <button
-                  onClick={() => window.location.reload()}
+                  onClick={() => window.location.href = '/chess'}
                   className="min-h-11 rounded-2xl px-6 py-3 text-base font-bold bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 shadow-xl border border-emerald-300/40 transition-all"
                 >
                   Play Again

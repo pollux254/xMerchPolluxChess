@@ -190,3 +190,34 @@ export const BOT_PROFILES: BotProfile[] = [
 ];
 
 export const BOT_PROFILE_BY_ID = new Map(BOT_PROFILES.map((b) => [b.botId, b]));
+
+/**
+ * Determine bot difficulty based on rank (1-1000 system)
+ * Easy: 1-300
+ * Medium: 301-600
+ * Hard: 601-1000
+ */
+export function getBotDifficultyByRank(rank: number): 'easy' | 'medium' | 'hard' {
+  if (rank <= 300) return 'easy'
+  if (rank <= 600) return 'medium'
+  return 'hard'
+}
+
+/**
+ * Generate a random bot rank for the specified difficulty
+ * Easy: Random 1-300
+ * Medium: Random 301-600
+ * Hard: Random 601-1000
+ */
+export function generateBotRankForDifficulty(difficulty: 'easy' | 'medium' | 'hard'): number {
+  switch (difficulty) {
+    case 'easy':
+      return Math.floor(Math.random() * 300) + 1 // 1-300
+    case 'medium':
+      return Math.floor(Math.random() * 300) + 301 // 301-600
+    case 'hard':
+      return Math.floor(Math.random() * 400) + 601 // 601-1000
+    default:
+      return 300 // fallback to easy-medium boundary
+  }
+}
