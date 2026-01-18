@@ -301,24 +301,6 @@ function GameContent() {
   }, [engineReady, playerID, matchmaking, bot, mode, playerColorParam])
 
   useEffect(() => {
-    if (matchmaking) {
-      setIsPlayerWhite(null)
-      return
-    }
-
-    if (playerColorParam === "white") {
-      setIsPlayerWhite(true)
-      return
-    }
-    if (playerColorParam === "black") {
-      setIsPlayerWhite(false)
-      return
-    }
-
-    setIsPlayerWhite(Math.random() < 0.5)
-  }, [playerColorParam, matchmaking])
-
-  useEffect(() => {
     const compute = () => {
       const vw = typeof window !== "undefined" ? window.innerWidth : 375
       const vh = typeof window !== "undefined" ? window.innerHeight : 667
