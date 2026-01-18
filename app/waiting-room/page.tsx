@@ -52,7 +52,7 @@ function WaitingRoomContent() {
     // ============================================================================
     async function verifyWallet() {
       const playerID = localStorage.getItem('playerID')
-      if (!playerID) {
+      if (!playerID || !tournamentId) {
         alert("❌ No wallet connected.\n\nPlease connect your wallet first.")
         window.location.href = "/chess"
         return false
