@@ -193,7 +193,7 @@ function GameMultiplayerContent() {
   }
 
   // Handle piece drop (make move)
-  async function onDrop(sourceSquare: string, targetSquare: string): Promise<boolean> {
+  function onDrop({ sourceSquare, targetSquare }: any): boolean {
     // Check if it's my turn
     const isMyTurn = (game.turn() === 'w' && myColor === 'white') || 
                      (game.turn() === 'b' && myColor === 'black')
@@ -202,6 +202,18 @@ function GameMultiplayerContent() {
       console.log("❌ Not your turn!")
       return false
     }
+
+    // Make the move async in the background
+    (async () => {
+      await makeMove(sourceSquare, targetSquare)
+    })()
+
+    // Return true to allow the UI to update
+    return true
+  }
+
+  // Async move handler
+  async function makeMove(sourceSquare: string, targetSquare: string) {
 
     try {
       // Attempt the move
@@ -475,12 +487,10 @@ function GameMultiplayerContent() {
           <div className="lg:col-span-1">
             <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl p-4">
               <Chessboard
-                position={gamePosition}
-                onPieceDrop={onDrop}
-                boardOrientation={myColor === 'white' ? 'white' : 'black'}
-                customBoardStyle={{
-                  borderRadius: '8px',
-                  boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)'
+                options={{
+                  position: gamePosition,
+                  onPieceDrop: onDrop,
+                  boardOrientation: (myColor === 'white' ? 'white' : 'black') as 'white' | 'black'
                 }}
               />
               
