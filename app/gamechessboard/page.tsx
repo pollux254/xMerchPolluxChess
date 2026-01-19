@@ -10,8 +10,9 @@ import { BOT_PROFILES } from "@/lib/bots/bot-profiles"
 import { getBotThinkingTimeSeconds } from "@/lib/bots/thinking-time"
 import { StockfishEngine, getStockfishParams } from "@/lib/stockfish/engine"
 import { getSupabaseClient } from "@/lib/supabase-client"
-import { getPlayerSettings, updateBotStats, type PlayerSettings } from "@/lib/player-profile"
+import { getPlayerSettings, updateBotStats, getPlayerStats, type PlayerSettings } from "@/lib/player-profile"
 import ProfileModal from "@/app/components/ProfileModal"
+import GameResultModal from "@/app/components/GameResultModal"
 
 function GameContent() {
   const searchParams = useSearchParams()
@@ -67,6 +68,12 @@ function GameContent() {
   
   // FIX #1: Profile modal state
   const [showProfile, setShowProfile] = useState(false)
+  
+  // FIX #4: Result modal state
+  const [showResultModal, setShowResultModal] = useState(false)
+  const [gameResult, setGameResult] = useState<'win' | 'loss' | 'draw'>('draw')
+  const [oldRank, setOldRank] = useState(1)
+  const [newRank, setNewRank] = useState(1)
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -165,6 +172,19 @@ function GameContent() {
       setEngineInitializing(false)
     }
   }, [])
+
+  // FIX #4: Fetch initial rank for result modal
+  useEffect(() => {
+    if (playerID && playerID !== "Guest") {
+      console.log("📊 [Profile] Fetching initial rank for result modal...")
+      getPlayerStats(playerID).then(stats => {
+        if (stats) {
+          setOldRank(stats.bot_elo)
+          console.log("📊 [Profile] Initial rank:", stats.bot_elo)
+        }
+      })
+    }
+  }, [playerID])
 
   // GAME RESTORATION & CREATION - Check for existing bot game or create new one
   useEffect(() => {
@@ -680,7 +700,7 @@ function GameContent() {
         console.log(`📊 [Stats] Calling updateBotStats for player: ${playerID}`)
         console.log(`📊 [Stats] Result: ${result}`)
         
-        updateBotStats(playerID, result).then((success) => {
+        updateBotStats(playerID, result).then(async (success) => {
           if (success) {
             console.log(`✅ [Stats] SUCCESS! Stats updated in database`)
             console.log(`✅ [Stats] Result recorded: ${result}`)
@@ -691,18 +711,26 @@ function GameContent() {
             console.error(`❌ [Stats] Check Supabase logs and network tab`)
           }
 
-          // BUG FIX 6: Auto-redirect to lobby after game ends
-          console.log(`🔄 [Redirect] Game ended. Redirecting to lobby in 3 seconds...`)
-          setTimeout(() => {
-            console.log(`🔄 [Redirect] Redirecting now...`)
-            window.location.href = '/chess'
-          }, 3000)
-        }).catch((error) => {
+          // FIX #4: Show result modal instead of auto-redirect
+          console.log(`🎉 [Result Modal] Fetching new rank and showing result modal...`)
+          const newStats = await getPlayerStats(playerID)
+          if (newStats) {
+            setNewRank(newStats.bot_elo)
+            console.log(`🎉 [Result Modal] New rank: ${newStats.bot_elo} (was ${oldRank})`)
+          } else {
+            setNewRank(oldRank) // Fallback if fetch fails
+          }
+          
+          setGameResult(result)
+          setShowResultModal(true)
+          console.log(`🎉 [Result Modal] Showing ${result} modal`)
+        }).catch(async (error) => {
           console.error(`❌ [Stats] Exception during stats update:`, error)
-          // Still redirect even if stats update fails
-          setTimeout(() => {
-            window.location.href = '/chess'
-          }, 3000)
+          // Still show modal even if stats update fails
+          const newStats = await getPlayerStats(playerID)
+          if (newStats) setNewRank(newStats.bot_elo)
+          setGameResult(result)
+          setShowResultModal(true)
         })
       } else {
         console.warn(`⚠️ [Stats] Attempted duplicate stats update - prevented`)
@@ -961,6 +989,17 @@ function GameContent() {
           isOpen={showProfile}
           onClose={() => setShowProfile(false)}
           walletAddress={playerID}
+        />
+      )}
+      
+      {/* FIX #4: Result Modal */}
+      {playerID !== "Guest" && (
+        <GameResultModal 
+          isOpen={showResultModal}
+          result={gameResult}
+          oldRank={oldRank}
+          newRank={newRank}
+          onReturnToLobby={() => window.location.href = '/chess'}
         />
       )}
     </div>
