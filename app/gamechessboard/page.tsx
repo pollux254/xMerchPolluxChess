@@ -74,6 +74,11 @@ function GameContent() {
   const [gameResult, setGameResult] = useState<'win' | 'loss' | 'draw'>('draw')
   const [oldRank, setOldRank] = useState(1)
   const [newRank, setNewRank] = useState(1)
+  const [resultReason, setResultReason] = useState<'checkmate' | 'timeout' | 'resignation' | 'stalemate'>('checkmate')
+  
+  // FIX #3: Confirm moves
+  const [settings, setSettings] = useState<PlayerSettings | null>(null)
+  const [pendingMove, setPendingMove] = useState<{from: string, to: string} | null>(null)
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -172,6 +177,19 @@ function GameContent() {
       setEngineInitializing(false)
     }
   }, [])
+
+  // FIX #3: Load player settings on mount
+  useEffect(() => {
+    if (playerID && playerID !== "Guest") {
+      console.log("⚙️ [Settings] Loading player settings...")
+      getPlayerSettings(playerID).then(playerSettings => {
+        if (playerSettings) {
+          setSettings(playerSettings)
+          console.log("⚙️ [Settings] Settings loaded:", playerSettings)
+        }
+      })
+    }
+  }, [playerID])
 
   // FIX #4: Fetch initial rank for result modal
   useEffect(() => {
@@ -426,6 +444,81 @@ function GameContent() {
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
+  // FIX #1: Game cleanup handler for Return to Lobby
+  const handleReturnToLobby = async () => {
+    if (gameId) {
+      console.log('🧹 [Cleanup] Marking game as completed before redirect...')
+      try {
+        await supabase
+          .from('tournament_games')
+          .update({ 
+            status: 'completed', 
+            completed_at: new Date().toISOString() 
+          })
+          .eq('id', gameId)
+        console.log('✅ [Cleanup] Game marked completed successfully')
+      } catch (error) {
+        console.error('❌ [Cleanup] Failed to mark game completed:', error)
+      }
+    }
+    console.log('🔄 [Redirect] Redirecting to lobby...')
+    window.location.href = '/chess'
+  }
+
+  // FIX #3: Confirm/Cancel move handlers
+  const confirmMove = () => {
+    if (!pendingMove) return
+    
+    console.log('✅ [Confirm] Move confirmed, executing...')
+    const { from, to } = pendingMove
+    
+    try {
+      const gameCopy = new Chess(game.fen())
+      const move = gameCopy.move({ from, to, promotion: "q" })
+      
+      if (move) {
+        const now = Date.now()
+        const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
+        const updatedPlayerTime = Math.max(0, playerTime - elapsedSeconds)
+        const newWhiteTime = isPlayerWhite ? updatedPlayerTime : botTime
+        const newBlackTime = isPlayerWhite ? botTime : updatedPlayerTime
+
+        // Update database
+        if (gameId) {
+          supabase
+            .from('tournament_games')
+            .update({
+              game_state: gameCopy.fen(),
+              last_move_at: new Date().toISOString(),
+              current_turn: gameCopy.turn() === 'w' ? 'white' : 'black',
+              first_move_made: true,
+              white_time_remaining: newWhiteTime,
+              black_time_remaining: newBlackTime
+            })
+            .eq('id', gameId)
+        }
+
+        // Update local state
+        setGame(gameCopy)
+        setFen(gameCopy.fen())
+        setPlayerTime(updatedPlayerTime)
+        setLastMoveTimestamp(now)
+        setFirstMoveMade(true)
+        setActivePlayer("bot")
+        setStatus("Bot's turn ♘")
+      }
+    } catch (error) {
+      console.error('❌ [Confirm] Error executing confirmed move:', error)
+    }
+    
+    setPendingMove(null)
+  }
+
+  const cancelMove = () => {
+    console.log('❌ [Confirm] Move cancelled by user')
+    setPendingMove(null)
+  }
+
   const handleResign = async () => {
     if (!gameId || game.isGameOver()) return
 
@@ -471,7 +564,14 @@ function GameContent() {
 
       if (move === null) return false
 
-      // Calculate elapsed time since last move
+      // FIX #3: Check if confirm moves is enabled
+      if (settings?.confirm_moves) {
+        console.log('⏸️ [Confirm] Move requires confirmation - showing prompt')
+        setPendingMove({ from: sourceSquare, to: targetSquare })
+        return true // Move is valid but pending confirmation
+      }
+
+      // If confirm_moves is false, execute immediately
       const now = Date.now()
       const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
       
@@ -992,14 +1092,37 @@ function GameContent() {
         />
       )}
       
-      {/* FIX #4: Result Modal */}
+      {/* FIX #3: Confirm Move UI */}
+      {pendingMove && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-2xl border border-yellow-500/40 shadow-2xl max-w-sm w-full p-6">
+            <p className="text-white text-xl font-bold mb-4 text-center">Confirm this move?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmMove}
+                className="flex-1 px-6 py-3 bg-green-600 hover:bg-green-500 rounded-xl text-white font-bold transition-all"
+              >
+                ✓ Confirm
+              </button>
+              <button
+                onClick={cancelMove}
+                className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white font-bold transition-all"
+              >
+                ✗ Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* FIX #4: Result Modal with cleanup handler */}
       {playerID !== "Guest" && (
         <GameResultModal 
           isOpen={showResultModal}
           result={gameResult}
           oldRank={oldRank}
           newRank={newRank}
-          onReturnToLobby={() => window.location.href = '/chess'}
+          onReturnToLobby={handleReturnToLobby}
         />
       )}
     </div>
