@@ -707,29 +707,20 @@ function GameContent() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl max-h-[92dvh] overflow-hidden">
-        <div className="h-full overflow-y-auto scrollable-container pr-1">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 bg-clip-text text-transparent drop-shadow-2xl">
+    <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-2">
+      <div className="w-full max-w-5xl h-full max-h-[98vh] flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 bg-clip-text text-transparent">
               PolluxChess
             </h1>
             <div className="text-right">
-              <p className="text-xs text-gray-300">You are</p>
-              <p className="text-base md:text-lg font-bold">
-                {isPlayerWhite ? "White ♔" : "Black ♚"}
-              </p>
+              <p className="text-xs text-gray-400">{isPlayerWhite ? "White ♔" : "Black ♚"}</p>
             </div>
           </div>
 
-          {mode === "bot_matchmaking" && (
-            <p className="text-center text-xs text-gray-400 mb-3">
-              Practice Match • Opponent is hidden
-            </p>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-            <div className="order-2 lg:order-1 bg-gray-800/60 backdrop-blur-xl rounded-2xl p-4 border border-purple-500/30">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 items-start flex-shrink-0">
+            <div className="order-2 lg:order-1 bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 border border-purple-500/30">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-gray-300">Bot</p>
@@ -760,14 +751,14 @@ function GameContent() {
 
             <div className="order-1 lg:order-2 flex justify-center">
               <div
-                className="bg-gray-800/60 backdrop-blur-xl rounded-2xl p-3 shadow-2xl border border-purple-500/40"
-                style={{ width: boardWidth + 24 }}
+                className="bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 shadow-2xl border border-purple-500/40"
+                style={{ width: boardWidth + 16 }}
               >
                 <Chessboard options={chessboardOptions} />
               </div>
             </div>
 
-            <div className="order-3 bg-gray-800/60 backdrop-blur-xl rounded-2xl p-4 border border-purple-500/30">
+            <div className="order-3 bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 border border-purple-500/30">
               <p className="text-xs text-gray-300">Player</p>
               <p className="font-mono text-sm md:text-base font-semibold text-cyan-200 break-all">
                 {playerID.length > 16 ? `${playerID.slice(0, 10)}...${playerID.slice(-6)}` : playerID}
@@ -779,16 +770,16 @@ function GameContent() {
             </div>
           </div>
 
-          <div className="mt-4">
-            <p className="text-center text-base md:text-lg font-bold bg-gray-800/60 backdrop-blur-xl rounded-2xl border border-indigo-500/30 px-4 py-3">
+          <div className="mt-2 flex-shrink-0">
+            <p className="text-center text-sm md:text-base font-bold bg-gray-800/60 backdrop-blur-xl rounded-xl border border-indigo-500/30 px-3 py-2">
               {status}
             </p>
 
             {!game.isGameOver() && gameId && (
-              <div className="mt-3 flex justify-center">
+              <div className="mt-2 flex justify-center">
                 <button
                   onClick={handleResign}
-                  className="min-h-11 rounded-2xl px-6 py-3 text-base font-bold bg-red-600 hover:bg-red-500 shadow-xl border border-red-400/40 transition-all"
+                  className="rounded-xl px-5 py-2 text-sm md:text-base font-bold bg-red-600 hover:bg-red-500 shadow-xl border border-red-400/40 transition-all"
                 >
                   Resign
                 </button>
@@ -796,10 +787,10 @@ function GameContent() {
             )}
 
             {game.isGameOver() && (
-              <div className="mt-3 flex justify-center">
+              <div className="mt-2 flex justify-center">
                 <button
                   onClick={() => window.location.href = '/chess'}
-                  className="min-h-11 rounded-2xl px-6 py-3 text-base font-bold bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 shadow-xl border border-emerald-300/40 transition-all"
+                  className="rounded-xl px-5 py-2 text-sm md:text-base font-bold bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 shadow-xl border border-emerald-300/40 transition-all"
                 >
                   Play Again
                 </button>
