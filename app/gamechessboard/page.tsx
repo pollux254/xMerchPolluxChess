@@ -204,16 +204,36 @@ function GameContent() {
           const playerIsWhite = existingGame.player_white === playerID
           setIsPlayerWhite(playerIsWhite)
 
-          // Calculate elapsed time since last move
+          // BUG FIX 5: Calculate elapsed time since last move
           const now = Date.now()
           const lastMoveTime = new Date(existingGame.last_move_at).getTime()
           const elapsedSeconds = Math.floor((now - lastMoveTime) / 1000)
 
-          console.log("🎮 [BotGame] Time since last move:", elapsedSeconds, "seconds")
+          console.log("⏰ [Timer] Current time:", now)
+          console.log("⏰ [Timer] Last move time:", lastMoveTime)
+          console.log("⏰ [Timer] Elapsed seconds:", elapsedSeconds)
+          console.log("⏰ [Timer] Stored white time:", existingGame.white_time_remaining)
+          console.log("⏰ [Timer] Stored black time:", existingGame.black_time_remaining)
+          console.log("⏰ [Timer] Current turn:", existingGame.current_turn)
 
-          // Calculate remaining times
-          const whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - (existingGame.current_turn === 'white' ? elapsedSeconds : 0))
-          const blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - (existingGame.current_turn === 'black' ? elapsedSeconds : 0))
+          // Calculate remaining times - subtract elapsed ONLY from current player
+          let whiteTimeRemaining = existingGame.white_time_remaining
+          let blackTimeRemaining = existingGame.black_time_remaining
+
+          if (existingGame.current_turn === 'white') {
+            whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - elapsedSeconds)
+            console.log("⏰ [Timer] White's turn - deducting from white:", whiteTimeRemaining)
+          } else {
+            blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - elapsedSeconds)
+            console.log("⏰ [Timer] Black's turn - deducting from black:", blackTimeRemaining)
+          }
+
+          // Cap at maximum 1200 seconds (20 minutes)
+          whiteTimeRemaining = Math.min(1200, Math.max(0, whiteTimeRemaining))
+          blackTimeRemaining = Math.min(1200, Math.max(0, blackTimeRemaining))
+
+          console.log("⏰ [Timer] Final white time:", whiteTimeRemaining, "seconds")
+          console.log("⏰ [Timer] Final black time:", blackTimeRemaining, "seconds")
 
           if (playerIsWhite) {
             setPlayerTime(whiteTimeRemaining)
