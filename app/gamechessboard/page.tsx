@@ -83,7 +83,7 @@ function GameContent() {
   
   // Move history navigation
   const [moveHistory, setMoveHistory] = useState<string[]>([])
-  const [historyIndex, setHistoryIndex] = useState(0)
+  const [historyIndex, setHistoryIndex] = useState(-1) // -1 means at current position
   const [viewingHistory, setViewingHistory] = useState(false)
 
   useEffect(() => {
@@ -470,6 +470,50 @@ function GameContent() {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, "0")}`
+  }
+
+  // Move navigation handlers
+  const handlePreviousMove = () => {
+    const history = game.history()
+    if (history.length === 0) return
+    
+    const newIndex = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1)
+    setHistoryIndex(newIndex)
+    setViewingHistory(true)
+    
+    // Create a new game and replay moves up to this index
+    const tempGame = new Chess()
+    for (let i = 0; i <= newIndex; i++) {
+      tempGame.move(history[i])
+    }
+    setVisualFen(tempGame.fen())
+  }
+
+  const handleNextMove = () => {
+    const history = game.history()
+    if (historyIndex === -1) return // Already at current position
+    
+    const newIndex = historyIndex + 1
+    
+    if (newIndex >= history.length) {
+      // Return to current position
+      setHistoryIndex(-1)
+      setViewingHistory(false)
+      setVisualFen(fen)
+    } else {
+      setHistoryIndex(newIndex)
+      const tempGame = new Chess()
+      for (let i = 0; i <= newIndex; i++) {
+        tempGame.move(history[i])
+      }
+      setVisualFen(tempGame.fen())
+    }
+  }
+
+  const handleReturnToCurrent = () => {
+    setHistoryIndex(-1)
+    setViewingHistory(false)
+    setVisualFen(fen)
   }
 
   // FIX #1: Game cleanup handler for Return to Lobby
@@ -1026,7 +1070,7 @@ function GameContent() {
   const botClockColor = activePlayer === "bot" && botTime < 30 ? "text-red-500" : "text-white"
 
   const chessboardOptions = {
-    position: visualFen, // Use visual FEN for smooth animations during confirmation
+    position: viewingHistory ? visualFen : (pendingMove ? visualFen : fen),
     onPieceDrop: onPieceDrop,
     boardOrientation: (isPlayerWhite ? "white" : "black") as "white" | "black",
     customBoardStyle: {
@@ -1036,7 +1080,7 @@ function GameContent() {
     customDarkSquareStyle: { backgroundColor: "#1e3a8a" },
     customLightSquareStyle: { backgroundColor: "#a5d8ff" },
     boardWidth,
-    arePiecesDraggable: !botThinking && engineReady,
+    arePiecesDraggable: !botThinking && engineReady && !viewingHistory,
   }
 
   return (
@@ -1082,13 +1126,62 @@ function GameContent() {
               )}
             </div>
 
-            <div className="order-1 lg:order-2 flex justify-center">
+            <div className="order-1 lg:order-2 flex flex-col items-center gap-2">
               <div
                 className="bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 shadow-2xl border border-purple-500/40"
                 style={{ width: boardWidth + 16 }}
               >
                 <Chessboard options={chessboardOptions} />
               </div>
+              
+              {/* Move Navigation Buttons */}
+              {game.history().length > 0 && (
+                <div className="flex items-center gap-2 bg-gray-800/80 backdrop-blur-xl rounded-xl px-3 py-2 border border-purple-500/30">
+                  <button
+                    onClick={handlePreviousMove}
+                    disabled={game.history().length === 0 || (historyIndex === 0 && viewingHistory)}
+                    className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white text-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 disabled:hover:scale-100"
+                    title="Previous move"
+                  >
+                    ◀
+                  </button>
+                  
+                  <div className="text-xs text-gray-300 min-w-[80px] text-center">
+                    {viewingHistory ? (
+                      <>
+                        <span className="text-yellow-400">Viewing</span>
+                        <br />
+                        Move {historyIndex + 1}/{game.history().length}
+                      </>
+                    ) : (
+                      <>
+                        Current
+                        <br />
+                        {game.history().length} moves
+                      </>
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={handleNextMove}
+                    disabled={historyIndex === -1 || !viewingHistory}
+                    className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white text-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 disabled:hover:scale-100"
+                    title="Next move"
+                  >
+                    ▶
+                  </button>
+                  
+                  {viewingHistory && (
+                    <button
+                      onClick={handleReturnToCurrent}
+                      className="ml-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-semibold transition-all shadow-lg hover:scale-105"
+                      title="Return to current position"
+                    >
+                      ⏩ Current
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="order-3 bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 border border-purple-500/30">
