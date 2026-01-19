@@ -116,19 +116,104 @@ export class StockfishEngine {
   async getBestMoveUci(
     fen: string,
     params: StockfishSearchParams,
-    timeoutMs = 10_000
+    timeoutMs = 10_000,
+    ranking = 1000 // Bot ranking 1-1000 for mistake injection
   ): Promise<string> {
     if (!this.worker || !this.readyOk) {
       throw new Error("Engine not ready");
     }
 
+    // Calculate mistake probability based on ranking (1-1000)
+    // Formula: mistake_rate = 50% - (ranking / 20)
+    const mistakeRate = Math.max(0, Math.min(50, 50 - (ranking / 20)));
+    const shouldMakeMistake = Math.random() * 100 < mistakeRate;
+
+    console.log(`🎲 [Bot AI] Rank ${ranking}, Mistake Rate: ${mistakeRate.toFixed(1)}%, Will mistake: ${shouldMakeMistake}`)
+
     // Keep queue small-ish while still useful for diagnostics.
-    this.messageQueue = this.messageQueue.filter((m) => !m.startsWith("bestmove"));
+    this.messageQueue = this.messageQueue.filter((m) => !m.startsWith("bestmove") && !m.startsWith("info"));
 
     if (typeof params.contempt === "number") {
       this.send(`setoption name Contempt value ${params.contempt}`);
     }
 
+    // If should make mistake, get multiple move options
+    if (shouldMakeMistake && ranking < 950) {
+      // Get top 5 moves to choose from
+      this.send(`setoption name MultiPV value 5`);
+      this.send(`position fen ${fen}`);
+      this.send(`go depth ${Math.max(3, params.depth - 1)}`); // Slightly lower depth for speed
+
+      const deadline = Date.now() + timeoutMs;
+      const moves: Array<{ move: string; score: number }> = [];
+
+      while (Date.now() < deadline) {
+        // Collect all "info" lines with pv (principal variation)
+        const infoLines = this.messageQueue.filter((m) => m.startsWith("info") && m.includes(" pv "));
+        
+        for (const line of infoLines) {
+          const pvMatch = line.match(/pv\s+(\w+)/);
+          const scoreMatch = line.match(/score\s+cp\s+(-?\d+)/);
+          
+          if (pvMatch && scoreMatch) {
+            const move = pvMatch[1];
+            const score = parseInt(scoreMatch[1]);
+            
+            if (!moves.find(m => m.move === move)) {
+              moves.push({ move, score });
+            }
+          }
+        }
+
+        // Check if we got bestmove (search complete)
+        const bestMoveMsg = this.messageQueue.find((m) => m.startsWith("bestmove"));
+        if (bestMoveMsg && moves.length > 1) {
+          // Reset MultiPV for next search
+          this.send(`setoption name MultiPV value 1`);
+          
+          // Sort moves by score (best to worst)
+          moves.sort((a, b) => b.score - a.score);
+          
+          console.log(`🎯 [Bot AI] Found ${moves.length} moves, scores:`, moves.map(m => m.score));
+          
+          // Select a weaker move based on ranking
+          let selectedMove: string;
+          
+          if (ranking <= 100) {
+            // Very weak (1-100): Pick random from all options or even worse
+            const randomIndex = Math.floor(Math.random() * moves.length);
+            selectedMove = moves[randomIndex].move;
+            console.log(`🎲 [Bot AI] Rank ${ranking} (Very Weak): Random move #${randomIndex + 1}`);
+          } else if (ranking <= 300) {
+            // Weak (101-300): Pick from worse 70% of moves
+            const worseCount = Math.max(1, Math.floor(moves.length * 0.7));
+            const randomIndex = Math.floor(Math.random() * worseCount);
+            selectedMove = moves[Math.min(randomIndex, moves.length - 1)].move;
+            console.log(`🎲 [Bot AI] Rank ${ranking} (Weak): Worse move #${randomIndex + 1} of ${worseCount}`);
+          } else if (ranking <= 600) {
+            // Medium (301-600): Pick from worse 50% or 2nd/3rd best
+            const pickIndex = Math.floor(Math.random() * Math.min(3, moves.length)) + 1;
+            selectedMove = moves[Math.min(pickIndex, moves.length - 1)].move;
+            console.log(`🎲 [Bot AI] Rank ${ranking} (Medium): Move #${pickIndex + 1}`);
+          } else {
+            // Strong (601-950): Occasionally pick 2nd or 3rd best
+            const pickIndex = Math.floor(Math.random() * Math.min(2, moves.length - 1)) + 1;
+            selectedMove = moves[pickIndex].move;
+            console.log(`🎲 [Bot AI] Rank ${ranking} (Strong): Move #${pickIndex + 1}`);
+          }
+          
+          return selectedMove;
+        }
+        
+        await sleep(100);
+      }
+      
+      // Timeout fallback - reset MultiPV and return best move
+      this.send(`setoption name MultiPV value 1`);
+    }
+
+    // Play best move (no mistake or high ranking)
+    this.send(`setoption name MultiPV value 1`);
     this.send(`position fen ${fen}`);
     this.send(`go depth ${params.depth}`);
 
@@ -138,6 +223,7 @@ export class StockfishEngine {
       const bestMoveMsg = this.messageQueue.find((m) => m.startsWith("bestmove"));
       if (bestMoveMsg) {
         const move = bestMoveMsg.split(" ")[1];
+        console.log(`✅ [Bot AI] Playing best move: ${move}`);
         return move || "e2e4";
       }
       await sleep(100);

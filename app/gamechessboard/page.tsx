@@ -31,6 +31,7 @@ function GameContent() {
   const [matchmaking, setMatchmaking] = useState(mode === "bot_matchmaking")
   const [game, setGame] = useState(new Chess())
   const [fen, setFen] = useState(game.fen())
+  const [visualFen, setVisualFen] = useState(game.fen()) // Separate visual state for smooth animations
   const [isPlayerWhite, setIsPlayerWhite] = useState<boolean | null>(null)
   const [status, setStatus] = useState("Initializing...")
   const [playerTime, setPlayerTime] = useState(1200)
@@ -79,7 +80,11 @@ function GameContent() {
   // FIX #3: Confirm moves
   const [settings, setSettings] = useState<PlayerSettings | null>(null)
   const [pendingMove, setPendingMove] = useState<{from: string, to: string} | null>(null)
+  
+  // Move history navigation
   const [moveHistory, setMoveHistory] = useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = useState(0)
+  const [viewingHistory, setViewingHistory] = useState(false)
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -521,9 +526,10 @@ function GameContent() {
             .eq('id', gameId)
         }
 
-        // Update local state
+        // Update local state - sync both FEN states
         setGame(gameCopy)
         setFen(gameCopy.fen())
+        setVisualFen(gameCopy.fen()) // Sync visual with actual
         setPlayerTime(updatedPlayerTime)
         setLastMoveTimestamp(now)
         setFirstMoveMade(true)
@@ -538,7 +544,9 @@ function GameContent() {
   }
 
   const cancelMove = () => {
-    console.log('❌ [Confirm] Move cancelled by user')
+    console.log('❌ [Confirm] Move cancelled by user - reverting visual state')
+    // Revert visual FEN back to actual game state
+    setVisualFen(game.fen())
     setPendingMove(null)
   }
 
@@ -606,6 +614,8 @@ function GameContent() {
       // FIX #3: Check if confirm moves is enabled
       if (settings?.confirm_moves) {
         console.log('⏸️ [Confirm] Move requires confirmation - showing prompt')
+        // CRITICAL: Update visual FEN to show piece at destination while confirming
+        setVisualFen(gameCopy.fen())
         setPendingMove({ from: sourceSquare, to: targetSquare })
         return true // Move is valid but pending confirmation
       }
@@ -702,7 +712,8 @@ function GameContent() {
         console.log(`🤖 Stockfish params for rank ${targetRank}:`, params)
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
         
-        const best = await engine.getBestMoveUci(game.fen(), params)
+        // Pass ranking to engine for mistake injection (1-1000 range)
+        const best = await engine.getBestMoveUci(game.fen(), params, 10000, targetRank)
         
         console.log(`✅ Bot move: ${best}`)
         
@@ -1015,7 +1026,7 @@ function GameContent() {
   const botClockColor = activePlayer === "bot" && botTime < 30 ? "text-red-500" : "text-white"
 
   const chessboardOptions = {
-    position: fen,
+    position: visualFen, // Use visual FEN for smooth animations during confirmation
     onPieceDrop: onPieceDrop,
     boardOrientation: (isPlayerWhite ? "white" : "black") as "white" | "black",
     customBoardStyle: {
