@@ -512,8 +512,10 @@ function GameContent() {
     botThinkingRef.current = true
     setBotThinking(true)
     
-    const rank = bot?.rank ?? 300
+    // FIX #2: Use botRank from URL for Stockfish difficulty
+    const rank = parseInt(botRankParam || '') || bot?.rank || 300
     const style = bot?.style ?? "Balanced"
+    console.log(`🤖 [Bot] Using botRank ${rank} for Stockfish difficulty (style: ${style})`)
     const thinkFor = getBotThinkingTimeSeconds(rank)
     setThinkingSeconds(thinkFor)
     setThinkingElapsed(0)
