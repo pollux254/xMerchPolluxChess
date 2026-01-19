@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     const { data: activeGames, error: gameError } = await supabase
       .from('tournament_games')
       .select('*')
-      .or(`(player_white.eq.${playerId}),(player_black.eq.${playerId})`)
+      .or(`player_white.eq.${playerId},player_black.eq.${playerId}`)
       .eq('status', 'in_progress')
       .order('created_at', { ascending: false })
       .limit(1)
