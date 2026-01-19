@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { useEffect, useState, useRef } from "react"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
-import { BOT_PROFILE_BY_ID, getBotDifficultyByRank } from "@/lib/bots/bot-profiles"
+import { BOT_PROFILE_BY_ID, getBotDifficultyByRank, generateBotRankForDifficulty } from "@/lib/bots/bot-profiles"
 import { BOT_PROFILES } from "@/lib/bots/bot-profiles"
 import { getBotThinkingTimeSeconds } from "@/lib/bots/thinking-time"
 import { StockfishEngine, getStockfishParams } from "@/lib/stockfish/engine"
@@ -238,9 +238,13 @@ function GameContent() {
           const playerIsWhite = playerColorParam === "white" ? true : playerColorParam === "black" ? false : Math.random() < 0.5
           setIsPlayerWhite(playerIsWhite)
 
-          // Get bot difficulty and rank
-          const botRank = bot?.rank ?? 300
-          const botDifficulty = getBotDifficultyByRank(botRank)
+          // Get bot difficulty from original rank, then generate random rank for that tier
+          const originalRank = bot?.rank ?? 300
+          const botDifficulty = getBotDifficultyByRank(originalRank)
+          // Generate random rank within the same difficulty tier
+          const botRank = generateBotRankForDifficulty(botDifficulty)
+          
+          console.log(`🎮 [BotGame] Bot ${bot?.name} - Original rank: ${originalRank}, Random rank: ${botRank}, Difficulty: ${botDifficulty}`)
 
           const newGameData = {
             tournament_id: 'BOT_GAME',
@@ -304,8 +308,9 @@ function GameContent() {
     const compute = () => {
       const vw = typeof window !== "undefined" ? window.innerWidth : 375
       const vh = typeof window !== "undefined" ? window.innerHeight : 667
-      const available = Math.min(vw - 32, vh - 280)
-      const size = Math.max(240, Math.min(520, Math.floor(available)))
+      // More aggressive sizing to fit everything in viewport
+      const available = Math.min(vw - 32, vh - 400)
+      const size = Math.max(200, Math.min(420, Math.floor(available)))
       setBoardWidth(size)
     }
 
