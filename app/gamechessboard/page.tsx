@@ -79,12 +79,30 @@ function GameContent() {
   // FIX #3: Confirm moves
   const [settings, setSettings] = useState<PlayerSettings | null>(null)
   const [pendingMove, setPendingMove] = useState<{from: string, to: string} | null>(null)
+  const [moveHistory, setMoveHistory] = useState<string[]>([])
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
 
     setMatchmaking(true)
-    const pick = BOT_PROFILES[Math.floor(Math.random() * BOT_PROFILES.length)]
+    
+    // CRITICAL FIX: Use botRank parameter for rank-based bot selection
+    console.log('━━━ BOT SELECTION DEBUG ━━━')
+    console.log('URL botRank param:', botRankParam)
+    
+    const targetRank = parseInt(botRankParam || '') || 300
+    console.log('Parsed targetRank:', targetRank)
+    
+    // Find bot closest to targetRank
+    const pick = BOT_PROFILES.reduce((closest, current) => {
+      const closestDiff = Math.abs(closest.rank - targetRank)
+      const currentDiff = Math.abs(current.rank - targetRank)
+      return currentDiff < closestDiff ? current : closest
+    })
+    
+    console.log(`🎯 Target Rank: ${targetRank}, Selected Bot: ${pick.name} (Rank ${pick.rank})`)
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━')
+    
     const delay = 1200 + Math.floor(Math.random() * 1400)
 
     const t = setTimeout(() => {
@@ -93,7 +111,7 @@ function GameContent() {
     }, delay)
 
     return () => clearTimeout(t)
-  }, [mode])
+  }, [mode, botRankParam])
 
   // ENGINE INITIALIZATION WITH ASYNC initialize() METHOD
   useEffect(() => {
@@ -262,15 +280,20 @@ function GameContent() {
           console.log("⏰ [Timer] Current turn:", existingGame.current_turn)
 
           // Calculate remaining times - subtract elapsed ONLY from current player
+          // CRITICAL FIX: Only deduct if elapsed time is positive (prevent negative time bugs)
           let whiteTimeRemaining = existingGame.white_time_remaining
           let blackTimeRemaining = existingGame.black_time_remaining
 
-          if (existingGame.current_turn === 'white') {
-            whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - elapsedSeconds)
-            console.log("⏰ [Timer] White's turn - deducting from white:", whiteTimeRemaining)
+          if (elapsedSeconds > 0) {
+            if (existingGame.current_turn === 'white') {
+              whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - elapsedSeconds)
+              console.log("⏰ [Timer] White's turn - deducting from white:", whiteTimeRemaining)
+            } else {
+              blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - elapsedSeconds)
+              console.log("⏰ [Timer] Black's turn - deducting from black:", blackTimeRemaining)
+            }
           } else {
-            blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - elapsedSeconds)
-            console.log("⏰ [Timer] Black's turn - deducting from black:", blackTimeRemaining)
+            console.log("⏰ [Timer] Negative/zero elapsed time detected - using stored times as-is")
           }
 
           // Cap at maximum 1200 seconds (20 minutes)
@@ -633,10 +656,18 @@ function GameContent() {
     setBotThinking(true)
     
     // FIX #2: Use botRank from URL for Stockfish difficulty
-    const rank = parseInt(botRankParam || '') || bot?.rank || 300
+    console.log('━━━ STOCKFISH CONFIGURATION DEBUG ━━━')
+    console.log('URL botRank param:', botRankParam)
+    console.log('Bot rank from profile:', bot?.rank)
+    
+    const targetRank = parseInt(botRankParam || '') || bot?.rank || 300
     const style = bot?.style ?? "Balanced"
-    console.log(`🤖 [Bot] Using botRank ${rank} for Stockfish difficulty (style: ${style})`)
-    const thinkFor = getBotThinkingTimeSeconds(rank)
+    
+    console.log(`🎯 Target Rank: ${targetRank}`)
+    console.log(`🎨 Bot Style: ${style}`)
+    console.log(`🧠 Stockfish will be configured for rank ${targetRank} (NOT bot.rank ${bot?.rank})`)
+    
+    const thinkFor = getBotThinkingTimeSeconds(targetRank)
     setThinkingSeconds(thinkFor)
     setThinkingElapsed(0)
     setStatus(`Bot is thinking… ${bot?.avatar ?? "♘"}💭`)
@@ -651,7 +682,10 @@ function GameContent() {
         const engine = engineRef.current
         if (!engine) throw new Error("Engine not available")
 
-        const params = getStockfishParams(style, rank)
+        const params = getStockfishParams(style, targetRank)
+        console.log(`🤖 Stockfish params for rank ${targetRank}:`, params)
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+        
         const best = await engine.getBestMoveUci(game.fen(), params)
         
         console.log(`✅ Bot move: ${best}`)
@@ -1008,7 +1042,7 @@ function GameContent() {
                   </p>
                   {bot && (
                     <p className="text-xs text-gray-400 mt-1">
-                      Rank {bot.rank} • {bot.style}
+                      Difficulty {parseInt(botRankParam || '') || bot.rank} • {bot.style}
                     </p>
                   )}
                 </div>
@@ -1083,6 +1117,28 @@ function GameContent() {
         </div>
       </div>
       
+      {/* Confirm Move Overlay - Centered, doesn't push anything */}
+      {pendingMove && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+          <div className="bg-gray-800/95 backdrop-blur-md rounded-full border border-yellow-500/50 shadow-2xl px-3 py-2 flex gap-3 pointer-events-auto">
+            <button
+              onClick={confirmMove}
+              className="w-12 h-12 bg-green-600 hover:bg-green-500 rounded-full text-white text-2xl flex items-center justify-center transition-all shadow-lg hover:scale-110"
+              title="Confirm move"
+            >
+              ✓
+            </button>
+            <button
+              onClick={cancelMove}
+              className="w-12 h-12 bg-red-600 hover:bg-red-500 rounded-full text-white text-2xl flex items-center justify-center transition-all shadow-lg hover:scale-110"
+              title="Cancel move"
+            >
+              ✗
+            </button>
+          </div>
+        </div>
+      )}
+      
       {/* FIX #1: Profile Modal */}
       {playerID !== "Guest" && (
         <ProfileModal 
@@ -1090,29 +1146,6 @@ function GameContent() {
           onClose={() => setShowProfile(false)}
           walletAddress={playerID}
         />
-      )}
-      
-      {/* FIX #3: Confirm Move UI */}
-      {pendingMove && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-2xl border border-yellow-500/40 shadow-2xl max-w-sm w-full p-6">
-            <p className="text-white text-xl font-bold mb-4 text-center">Confirm this move?</p>
-            <div className="flex gap-3">
-              <button
-                onClick={confirmMove}
-                className="flex-1 px-6 py-3 bg-green-600 hover:bg-green-500 rounded-xl text-white font-bold transition-all"
-              >
-                ✓ Confirm
-              </button>
-              <button
-                onClick={cancelMove}
-                className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white font-bold transition-all"
-              >
-                ✗ Cancel
-              </button>
-            </div>
-          </div>
-        </div>
       )}
       
       {/* FIX #4: Result Modal with cleanup handler */}

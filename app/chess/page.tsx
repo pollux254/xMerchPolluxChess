@@ -7,6 +7,7 @@ import Link from "next/link"
 import { createClient } from "@supabase/supabase-js"
 import { getOrCreateProfile, getPlayerStats, getRandomBotRankForPlayer } from "@/lib/player-profile"
 import SettingsModal from "@/app/components/SettingsModal"
+import ProfileModal from "@/app/components/ProfileModal"
 
 type Theme = "light" | "middle" | "dark"
 
@@ -45,6 +46,7 @@ export default function Chess() {
     status: string
   } | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
   
   // Dynamic network state
   const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
@@ -619,8 +621,13 @@ export default function Chess() {
     try {
       console.log(`🎯 [Matchmaking] Starting matchmaking for player: ${playerID}`)
       
+      // CRITICAL: Ensure profile exists first
+      await getOrCreateProfile(playerID)
+      
       // Get player stats to determine their rank
       const stats = await getPlayerStats(playerID)
+      
+      let botRank: number
       
       if (stats) {
         console.log(`📊 [Matchmaking] Player stats:`, {
@@ -631,28 +638,29 @@ export default function Chess() {
         })
         
         // Generate bot rank within ±10 of player's rank
-        const botRank = getRandomBotRankForPlayer(stats.bot_elo)
+        botRank = getRandomBotRankForPlayer(stats.bot_elo)
         
         console.log(`🤖 [Matchmaking] Player ELO: ${stats.bot_elo}`)
         console.log(`🤖 [Matchmaking] Generated Bot Rank: ${botRank}`)
         console.log(`🤖 [Matchmaking] Range: ${Math.max(1, stats.bot_elo - 10)} - ${Math.min(1000, stats.bot_elo + 10)}`)
-        
-        // Build game URL with botRank
-        const gameUrl = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
-        console.log(`🔗 [Matchmaking] Redirecting to:`, gameUrl)
-        
-        // Pass bot rank to game
-        window.location.href = gameUrl
       } else {
-        // Fallback if profile doesn't exist (shouldn't happen)
-        console.warn('⚠️ [Matchmaking] No stats found for player, using default matchmaking')
-        console.warn('⚠️ [Matchmaking] This should not happen - profile should exist!')
-        window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
+        // Fallback to beginner rank if stats fetch failed
+        botRank = 100 // Default beginner level
+        console.warn('⚠️ [Matchmaking] No stats found, using default botRank:', botRank)
       }
+      
+      // ALWAYS pass botRank parameter
+      const gameUrl = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
+      console.log(`🔗 [Matchmaking] Redirecting to:`, gameUrl)
+      
+      window.location.href = gameUrl
+      
     } catch (error) {
       console.error('❌ [Matchmaking] Error during matchmaking:', error)
-      // Fallback to default matchmaking
-      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
+      // Even on error, pass a default botRank
+      const defaultBotRank = 100
+      console.log(`🔗 [Matchmaking] Error fallback - using botRank: ${defaultBotRank}`)
+      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${defaultBotRank}`
     }
   }
 
@@ -674,13 +682,23 @@ export default function Chess() {
 
         <div className="flex gap-2 items-center">
           {playerID && (
-            <button
-              onClick={() => setShowSettings(true)}
-              className="rounded-full p-2 border border-border bg-card/80 backdrop-blur-sm hover:bg-muted transition-all shadow-lg"
-              aria-label="Settings"
-            >
-              <Settings className="h-5 w-5" />
-            </button>
+            <>
+              <button
+                onClick={() => setShowProfile(true)}
+                className="rounded-full p-2 border border-border bg-card/80 backdrop-blur-sm hover:bg-muted transition-all shadow-lg text-lg"
+                aria-label="View Profile"
+                title="View your stats"
+              >
+                👤
+              </button>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="rounded-full p-2 border border-border bg-card/80 backdrop-blur-sm hover:bg-muted transition-all shadow-lg"
+                aria-label="Settings"
+              >
+                <Settings className="h-5 w-5" />
+              </button>
+            </>
           )}
           
           <div className="flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
@@ -885,6 +903,15 @@ export default function Chess() {
         <SettingsModal 
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
+          walletAddress={playerID}
+        />
+      )}
+
+      {/* Profile Modal */}
+      {playerID && (
+        <ProfileModal 
+          isOpen={showProfile}
+          onClose={() => setShowProfile(false)}
           walletAddress={playerID}
         />
       )}
