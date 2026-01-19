@@ -11,6 +11,7 @@ import { getBotThinkingTimeSeconds } from "@/lib/bots/thinking-time"
 import { StockfishEngine, getStockfishParams } from "@/lib/stockfish/engine"
 import { getSupabaseClient } from "@/lib/supabase-client"
 import { getPlayerSettings, updateBotStats, type PlayerSettings } from "@/lib/player-profile"
+import ProfileModal from "@/app/components/ProfileModal"
 
 function GameContent() {
   const searchParams = useSearchParams()
@@ -63,6 +64,9 @@ function GameContent() {
   // Player settings
   const [playerSettings, setPlayerSettings] = useState<PlayerSettings | null>(null)
   const statsUpdatedRef = useRef(false)
+  
+  // FIX #1: Profile modal state
+  const [showProfile, setShowProfile] = useState(false)
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -897,7 +901,18 @@ function GameContent() {
             </div>
 
             <div className="order-3 bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 border border-purple-500/30">
-              <p className="text-xs text-gray-300">Player</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-300">Player</p>
+                {playerID !== "Guest" && (
+                  <button
+                    onClick={() => setShowProfile(true)}
+                    className="text-lg hover:scale-110 transition-transform"
+                    title="View Profile"
+                  >
+                    👤
+                  </button>
+                )}
+              </div>
               <p className="font-mono text-sm md:text-base font-semibold text-cyan-200 break-all">
                 {playerID.length > 16 ? `${playerID.slice(0, 10)}...${playerID.slice(-6)}` : playerID}
               </p>
@@ -937,6 +952,15 @@ function GameContent() {
           </div>
         </div>
       </div>
+      
+      {/* FIX #1: Profile Modal */}
+      {playerID !== "Guest" && (
+        <ProfileModal 
+          isOpen={showProfile}
+          onClose={() => setShowProfile(false)}
+          walletAddress={playerID}
+        />
+      )}
     </div>
   )
 }
