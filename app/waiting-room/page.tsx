@@ -62,6 +62,13 @@ function WaitingRoomContent() {
       console.log("  Logged in as:", playerID)
       console.log("  Tournament ID:", tournamentId)
 
+      if (!tournamentId) {
+        console.error("❌ No tournament ID")
+        alert("❌ No tournament connected.\n\nReturning to lobby.")
+        window.location.href = "/chess"
+        return false
+      }
+
       const verification = await verifyWalletMatch(tournamentId, playerID)
 
       if (!verification.isValid) {
