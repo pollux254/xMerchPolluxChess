@@ -10,6 +10,7 @@ import { BOT_PROFILES } from "@/lib/bots/bot-profiles"
 import { getBotThinkingTimeSeconds } from "@/lib/bots/thinking-time"
 import { StockfishEngine, getStockfishParams } from "@/lib/stockfish/engine"
 import { getSupabaseClient } from "@/lib/supabase-client"
+import { getPlayerSettings, updateBotStats, type PlayerSettings } from "@/lib/player-profile"
 
 function GameContent() {
   const searchParams = useSearchParams()
@@ -55,6 +56,10 @@ function GameContent() {
   const [gameStartedAt, setGameStartedAt] = useState<Date | null>(null)
   const gameLoadedRef = useRef(false)
   const supabase = getSupabaseClient()
+
+  // Player settings
+  const [playerSettings, setPlayerSettings] = useState<PlayerSettings | null>(null)
+  const statsUpdatedRef = useRef(false)
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -578,27 +583,90 @@ function GameContent() {
     }
   }, [fen, isPlayerWhite, game, engineReady, bot, mode])
 
+  // PHASE 7: Update player stats when game ends
   useEffect(() => {
     if (isPlayerWhite === null) return
+    if (playerID === "Guest") return
+    if (statsUpdatedRef.current) return // Prevent duplicate updates
 
-    if (game.isGameOver() || playerTime === 0 || botTime === 0) {
+    const isGameEnded = game.isGameOver() || playerTime === 0 || botTime === 0
+
+    if (isGameEnded) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
       }
 
+      // Determine game result
+      let result: 'win' | 'loss' | 'draw' = 'draw'
+      let statusMessage = ""
+
       if (game.isCheckmate()) {
         const winner = game.turn() === (isPlayerWhite ? "w" : "b") ? "Bot" : "You"
-        setStatus(`Checkmate! ${winner} wins! 🎉`)
+        result = winner === "You" ? 'win' : 'loss'
+        statusMessage = `Checkmate! ${winner} wins! 🎉`
       } else if (game.isDraw()) {
-        setStatus("It's a draw! 🤝")
+        result = 'draw'
+        statusMessage = "It's a draw! 🤝"
       } else if (playerTime === 0) {
-        setStatus("Time forfeit! Bot wins ⏰")
+        result = 'loss'
+        statusMessage = "Time forfeit! Bot wins ⏰"
       } else if (botTime === 0) {
-        setStatus("Bot ran out of time! You win ⏰")
+        result = 'win'
+        statusMessage = "Bot ran out of time! You win ⏰"
+      }
+
+      setStatus(statusMessage)
+
+      // Update stats in database
+      if (!statsUpdatedRef.current) {
+        statsUpdatedRef.current = true
+        console.log(`📊 [Stats] Updating stats for ${result}`)
+        
+        updateBotStats(playerID, result).then((success) => {
+          if (success) {
+            console.log(`✅ [Stats] Stats updated successfully for ${result}`)
+          } else {
+            console.error(`❌ [Stats] Failed to update stats`)
+          }
+        })
       }
     }
-  }, [game, playerTime, botTime, isPlayerWhite])
+  }, [game, playerTime, botTime, isPlayerWhite, playerID])
+
+  // Handle page close/refresh during active game (treat as loss)
+  useEffect(() => {
+    if (!gameId || playerID === "Guest") return
+    if (game.isGameOver() || statsUpdatedRef.current) return
+
+    const handleBeforeUnload = async (e: BeforeUnloadEvent) => {
+      // Only trigger if game is still active
+      if (!game.isGameOver() && !statsUpdatedRef.current) {
+        console.log("⚠️ [Stats] Page closing during active game - recording loss")
+        
+        // Mark as updated to prevent duplicate calls
+        statsUpdatedRef.current = true
+        
+        // Update stats (loss) - using navigator.sendBeacon for reliability
+        const updateData = JSON.stringify({
+          walletAddress: playerID,
+          result: 'loss'
+        })
+        
+        // Try to update stats before page closes
+        await updateBotStats(playerID, 'loss')
+        
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [gameId, game, playerID])
 
   if (engineError) {
     return (
