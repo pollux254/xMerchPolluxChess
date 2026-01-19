@@ -617,23 +617,40 @@ export default function Chess() {
     }
 
     try {
+      console.log(`🎯 [Matchmaking] Starting matchmaking for player: ${playerID}`)
+      
       // Get player stats to determine their rank
       const stats = await getPlayerStats(playerID)
       
       if (stats) {
+        console.log(`📊 [Matchmaking] Player stats:`, {
+          bot_elo: stats.bot_elo,
+          wins: stats.bot_wins,
+          losses: stats.bot_losses,
+          draws: stats.bot_draws
+        })
+        
         // Generate bot rank within ±10 of player's rank
         const botRank = getRandomBotRankForPlayer(stats.bot_elo)
-        console.log(`🎮 [Matchmaking] Player ELO: ${stats.bot_elo}, Bot rank: ${botRank}`)
+        
+        console.log(`🤖 [Matchmaking] Player ELO: ${stats.bot_elo}`)
+        console.log(`🤖 [Matchmaking] Generated Bot Rank: ${botRank}`)
+        console.log(`🤖 [Matchmaking] Range: ${Math.max(1, stats.bot_elo - 10)} - ${Math.min(1000, stats.bot_elo + 10)}`)
+        
+        // Build game URL with botRank
+        const gameUrl = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
+        console.log(`🔗 [Matchmaking] Redirecting to:`, gameUrl)
         
         // Pass bot rank to game
-        window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
+        window.location.href = gameUrl
       } else {
         // Fallback if profile doesn't exist (shouldn't happen)
-        console.warn('⚠️ [Matchmaking] No stats found, using default')
+        console.warn('⚠️ [Matchmaking] No stats found for player, using default matchmaking')
+        console.warn('⚠️ [Matchmaking] This should not happen - profile should exist!')
         window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
       }
     } catch (error) {
-      console.error('❌ [Matchmaking] Error:', error)
+      console.error('❌ [Matchmaking] Error during matchmaking:', error)
       // Fallback to default matchmaking
       window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
     }

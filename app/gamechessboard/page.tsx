@@ -18,10 +18,13 @@ function GameContent() {
   const fee = searchParams.get("fee") ?? "0"
   const mode = searchParams.get("mode")
   const botId = searchParams.get("botId")
+  const botRankParam = searchParams.get("botRank") // BUG FIX 1: Get botRank from URL
   const [matchedBotId, setMatchedBotId] = useState<string | null>(null)
   const effectiveBotId = botId ?? matchedBotId
   const bot = effectiveBotId ? BOT_PROFILE_BY_ID.get(effectiveBotId) : undefined
   const playerColorParam = searchParams.get("playerColor")
+
+  console.log("🎮 [Game] URL Params:", { playerID, fee, mode, botId, botRank: botRankParam })
 
   const [matchmaking, setMatchmaking] = useState(mode === "bot_matchmaking")
   const [game, setGame] = useState(new Chess())
