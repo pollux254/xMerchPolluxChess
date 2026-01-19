@@ -5,6 +5,7 @@ import { motion } from "framer-motion"
 import { Moon, Sun, Monitor, LogOut } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@supabase/supabase-js"
+import { getOrCreateProfile, getPlayerStats, getRandomBotRankForPlayer } from "@/lib/player-profile"
 
 type Theme = "light" | "middle" | "dark"
 
@@ -283,6 +284,10 @@ export default function Chess() {
                 setPlayerID(walletAddress)
                 localStorage.setItem("playerID", walletAddress)
                 sessionStorage.removeItem("waitingForLogin")
+                
+                // Create player profile silently
+                getOrCreateProfile(walletAddress)
+                
                 alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
               } else {
                 console.log("✅ Supabase session created:", authData.session?.user.id)
@@ -291,6 +296,10 @@ export default function Chess() {
                 setPlayerID(walletAddress)
                 localStorage.setItem("playerID", walletAddress)
                 sessionStorage.removeItem("waitingForLogin")
+                
+                // Create player profile silently
+                getOrCreateProfile(walletAddress)
+                
                 alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
               }
             }
@@ -599,12 +608,33 @@ export default function Chess() {
     }
   }
 
-  const handleFreePlay = () => {
+  const handleFreePlay = async () => {
     if (!playerID) {
       alert("Please connect your wallet first!")
       return
     }
-    window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
+
+    try {
+      // Get player stats to determine their rank
+      const stats = await getPlayerStats(playerID)
+      
+      if (stats) {
+        // Generate bot rank within ±10 of player's rank
+        const botRank = getRandomBotRankForPlayer(stats.bot_elo)
+        console.log(`🎮 [Matchmaking] Player ELO: ${stats.bot_elo}, Bot rank: ${botRank}`)
+        
+        // Pass bot rank to game
+        window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
+      } else {
+        // Fallback if profile doesn't exist (shouldn't happen)
+        console.warn('⚠️ [Matchmaking] No stats found, using default')
+        window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
+      }
+    } catch (error) {
+      console.error('❌ [Matchmaking] Error:', error)
+      // Fallback to default matchmaking
+      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking`
+    }
   }
 
   return (
