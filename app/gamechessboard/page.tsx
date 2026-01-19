@@ -684,8 +684,19 @@ function GameContent() {
             console.error(`❌ [Stats] Player: ${playerID}, Result: ${result}`)
             console.error(`❌ [Stats] Check Supabase logs and network tab`)
           }
+
+          // BUG FIX 6: Auto-redirect to lobby after game ends
+          console.log(`🔄 [Redirect] Game ended. Redirecting to lobby in 3 seconds...`)
+          setTimeout(() => {
+            console.log(`🔄 [Redirect] Redirecting now...`)
+            window.location.href = '/chess'
+          }, 3000)
         }).catch((error) => {
           console.error(`❌ [Stats] Exception during stats update:`, error)
+          // Still redirect even if stats update fails
+          setTimeout(() => {
+            window.location.href = '/chess'
+          }, 3000)
         })
       } else {
         console.warn(`⚠️ [Stats] Attempted duplicate stats update - prevented`)
