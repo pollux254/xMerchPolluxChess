@@ -174,7 +174,7 @@ function GameContent() {
           .select('*')
           .eq('game_type', 'bot')
           .eq('status', 'active')
-          .or(`player_white.eq.${playerID},player_black.eq.${playerID}`)
+          .or(`(player_white.eq.${playerID}),(player_black.eq.${playerID})`)
           .limit(1)
 
         if (queryError) {
