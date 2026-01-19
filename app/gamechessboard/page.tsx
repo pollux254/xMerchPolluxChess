@@ -606,15 +606,37 @@ function GameContent() {
     }
   }, [fen, isPlayerWhite, game, engineReady, bot, mode])
 
-  // PHASE 7: Update player stats when game ends
+  // BUG FIX 4: Update player stats when game ends with EXTENSIVE LOGGING
   useEffect(() => {
-    if (isPlayerWhite === null) return
-    if (playerID === "Guest") return
-    if (statsUpdatedRef.current) return // Prevent duplicate updates
+    console.log("🎮 [Stats Check] Checking game end conditions...", {
+      isPlayerWhite,
+      playerID,
+      statsUpdated: statsUpdatedRef.current,
+      gameOver: game.isGameOver(),
+      playerTime,
+      botTime
+    })
+
+    if (isPlayerWhite === null) {
+      console.log("⏸️ [Stats] Waiting for player color...")
+      return
+    }
+    if (playerID === "Guest") {
+      console.log("⏸️ [Stats] Guest player - skipping stats")
+      return
+    }
+    if (statsUpdatedRef.current) {
+      console.log("⏸️ [Stats] Stats already updated - preventing duplicate")
+      return
+    }
 
     const isGameEnded = game.isGameOver() || playerTime === 0 || botTime === 0
 
+    console.log("🎮 [Stats] Game ended?", isGameEnded)
+
     if (isGameEnded) {
+      console.log("🏁 [Stats] GAME ENDED! Processing result...")
+      
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
@@ -628,15 +650,19 @@ function GameContent() {
         const winner = game.turn() === (isPlayerWhite ? "w" : "b") ? "Bot" : "You"
         result = winner === "You" ? 'win' : 'loss'
         statusMessage = `Checkmate! ${winner} wins! 🎉`
+        console.log(`🏁 [Stats] Checkmate! Winner: ${winner}, Result: ${result}`)
       } else if (game.isDraw()) {
         result = 'draw'
         statusMessage = "It's a draw! 🤝"
+        console.log(`🏁 [Stats] Game ended in draw`)
       } else if (playerTime === 0) {
         result = 'loss'
         statusMessage = "Time forfeit! Bot wins ⏰"
+        console.log(`🏁 [Stats] Player timeout - Loss`)
       } else if (botTime === 0) {
         result = 'win'
         statusMessage = "Bot ran out of time! You win ⏰"
+        console.log(`🏁 [Stats] Bot timeout - Win`)
       }
 
       setStatus(statusMessage)
@@ -644,15 +670,25 @@ function GameContent() {
       // Update stats in database
       if (!statsUpdatedRef.current) {
         statsUpdatedRef.current = true
-        console.log(`📊 [Stats] Updating stats for ${result}`)
+        console.log(`📊 [Stats] Marking stats as updated to prevent duplicates`)
+        console.log(`📊 [Stats] Calling updateBotStats for player: ${playerID}`)
+        console.log(`📊 [Stats] Result: ${result}`)
         
         updateBotStats(playerID, result).then((success) => {
           if (success) {
-            console.log(`✅ [Stats] Stats updated successfully for ${result}`)
+            console.log(`✅ [Stats] SUCCESS! Stats updated in database`)
+            console.log(`✅ [Stats] Result recorded: ${result}`)
+            console.log(`✅ [Stats] Check database player_profiles table for updated values`)
           } else {
-            console.error(`❌ [Stats] Failed to update stats`)
+            console.error(`❌ [Stats] FAILED to update stats in database`)
+            console.error(`❌ [Stats] Player: ${playerID}, Result: ${result}`)
+            console.error(`❌ [Stats] Check Supabase logs and network tab`)
           }
+        }).catch((error) => {
+          console.error(`❌ [Stats] Exception during stats update:`, error)
         })
+      } else {
+        console.warn(`⚠️ [Stats] Attempted duplicate stats update - prevented`)
       }
     }
   }, [game, playerTime, botTime, isPlayerWhite, playerID])
