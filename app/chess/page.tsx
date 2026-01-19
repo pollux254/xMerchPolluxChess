@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Moon, Sun, Monitor, LogOut } from "lucide-react"
+import { Moon, Sun, Monitor, LogOut, Settings } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@supabase/supabase-js"
 import { getOrCreateProfile, getPlayerStats, getRandomBotRankForPlayer } from "@/lib/player-profile"
+import SettingsModal from "@/app/components/SettingsModal"
 
 type Theme = "light" | "middle" | "dark"
 
@@ -43,6 +44,7 @@ export default function Chess() {
     id: string
     status: string
   } | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
   
   // Dynamic network state
   const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
@@ -653,16 +655,28 @@ export default function Chess() {
           ← Home
         </Link>
 
-        <div className="flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
-          <button onClick={() => setThemeValue("light")} className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Light theme">
-            <Sun className="h-5 w-5" />
-          </button>
-          <button onClick={() => setThemeValue("middle")} className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="System theme">
-            <Monitor className="h-5 w-5" />
-          </button>
-          <button onClick={() => setThemeValue("dark")} className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Dark theme">
-            <Moon className="h-5 w-5" />
-          </button>
+        <div className="flex gap-2 items-center">
+          {playerID && (
+            <button
+              onClick={() => setShowSettings(true)}
+              className="rounded-full p-2 border border-border bg-card/80 backdrop-blur-sm hover:bg-muted transition-all shadow-lg"
+              aria-label="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+          )}
+          
+          <div className="flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
+            <button onClick={() => setThemeValue("light")} className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Light theme">
+              <Sun className="h-5 w-5" />
+            </button>
+            <button onClick={() => setThemeValue("middle")} className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="System theme">
+              <Monitor className="h-5 w-5" />
+            </button>
+            <button onClick={() => setThemeValue("dark")} className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Dark theme">
+              <Moon className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -848,6 +862,15 @@ export default function Chess() {
           </a>
         </div>
       </motion.div>
+
+      {/* Settings Modal */}
+      {playerID && (
+        <SettingsModal 
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          walletAddress={playerID}
+        />
+      )}
     </div>
   )
 }
