@@ -550,6 +550,22 @@ function GameContent() {
 
     console.log("🎮 [BotGame] Player resigned")
 
+    // Mark stats as updated to prevent duplicate
+    if (!statsUpdatedRef.current) {
+      statsUpdatedRef.current = true
+      
+      console.log("📊 [Resign] Updating stats for resignation (loss)")
+      
+      // Update player stats - resignation counts as loss
+      const success = await updateBotStats(playerID, 'loss')
+      
+      if (success) {
+        console.log("✅ [Resign] Stats updated successfully - player lost 1 rank")
+      } else {
+        console.error("❌ [Resign] Failed to update stats")
+      }
+    }
+
     const opponentWallet = isPlayerWhite ? null : playerID // Bot doesn't have wallet
     const playerWallet = playerID
 
@@ -563,7 +579,7 @@ function GameContent() {
       })
       .eq('id', gameId)
 
-    setStatus("You resigned. Bot wins!")
+    setStatus("You resigned. Bot wins! Rank -1")
 
     setTimeout(() => {
       window.location.href = '/chess'
