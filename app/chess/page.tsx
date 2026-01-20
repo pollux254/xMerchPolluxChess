@@ -26,7 +26,6 @@ const assets: Asset[] = [
   { currency: "RLUSD", issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", label: "RLUSD" },
 ]
 
-// Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -48,14 +47,12 @@ export default function Chess() {
   const [showSettings, setShowSettings] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   
-  // Dynamic network state
   const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
 
   const selectedAsset = assets[selectedAssetIndex]
   const feeTiers = [10, 25, 50, 100]
   const sizes = [2, 4, 8, 16]
 
-  // Dynamic Hook address based on network
   const hookAddress = network === 'testnet'
     ? (process.env.NEXT_PUBLIC_HOOK_ADDRESS_TESTNET || 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY')
     : (process.env.NEXT_PUBLIC_HOOK_ADDRESS || process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY')
@@ -134,7 +131,6 @@ export default function Chess() {
             status: data.status
           })
 
-          // Only redirect if we're on the chess page (prevent infinite loops)
           if (window.location.pathname === '/chess') {
             if (data.status === "waiting") {
               setTimeout(() => {
@@ -144,7 +140,7 @@ export default function Chess() {
             } else if (data.status === "in_progress" || data.status === "in-progress") {
               setTimeout(() => {
                 console.log("🚀 Auto-redirecting to active game...")
-                window.location.href = `/gamechessboard?tournamentId=${data.tournamentId}`
+                window.location.href = `/game-multiplayer?tournamentId=${data.tournamentId}`
               }, 1500)
             }
           }
@@ -172,7 +168,6 @@ export default function Chess() {
     localStorage.setItem("network", newNetwork)
     console.log(`🔄 Switching to ${newNetwork.toUpperCase()}...`)
     
-    // Force page refresh to reset all state and network-dependent data
     setTimeout(() => {
       window.location.reload()
     }, 300)
@@ -209,6 +204,8 @@ export default function Chess() {
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
       
+      console.log("📱 Device detection:", isMobile ? "MOBILE" : "DESKTOP")
+      
       sessionStorage.setItem("waitingForLogin", "true")
       
       let signinPopup: Window | null = null
@@ -216,8 +213,10 @@ export default function Chess() {
       let timeoutId: NodeJS.Timeout | null = null
       
       if (isMobile) {
+        console.log("📱 Mobile detected - Direct redirect to Xaman app")
         window.location.href = nextUrl
       } else {
+        console.log("💻 Desktop detected - Opening popup")
         signinPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
         if (!signinPopup) {
@@ -289,7 +288,6 @@ export default function Chess() {
                 localStorage.setItem("playerID", walletAddress)
                 sessionStorage.removeItem("waitingForLogin")
                 
-                // Create player profile silently
                 getOrCreateProfile(walletAddress)
                 
                 alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
@@ -301,7 +299,6 @@ export default function Chess() {
                 localStorage.setItem("playerID", walletAddress)
                 sessionStorage.removeItem("waitingForLogin")
                 
-                // Create player profile silently
                 getOrCreateProfile(walletAddress)
                 
                 alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
@@ -491,7 +488,7 @@ export default function Chess() {
         console.log("🆕 Creating new tournament...")
         const prizePool = selectedFee * selectedSize * 0.95
         const now = new Date()
-        const expiresAt = new Date(now.getTime() + 10 * 60 * 1000) // 10 minutes from now
+        const expiresAt = new Date(now.getTime() + 10 * 60 * 1000)
         
         const { error: createError } = await supabase
           .from('tournaments')
@@ -549,11 +546,15 @@ export default function Chess() {
       console.log("✅ Xaman payload created:", uuid)
 
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      console.log("📱 Payment device detection:", isMobile ? "MOBILE" : "DESKTOP")
+      
       let xamanPopup: Window | null = null
       
       if (isMobile) {
+        console.log("📱 Mobile payment - Direct redirect to Xaman app")
         window.location.href = nextUrl
       } else {
+        console.log("💻 Desktop payment - Opening popup")
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
         if (!xamanPopup) {
@@ -574,7 +575,7 @@ export default function Chess() {
 
       ws.onmessage = async (event) => {
         const status = JSON.parse(event.data)
-        console.log("📡 Xaman status:", status)
+        console.log("📡 Xaman payment status:", status)
 
         if (status.signed === true) {
           clearTimeout(timeoutId)
@@ -624,10 +625,8 @@ export default function Chess() {
     try {
       console.log(`🎯 [Matchmaking] Starting matchmaking for player: ${playerID}`)
       
-      // CRITICAL: Ensure profile exists first
       await getOrCreateProfile(playerID)
       
-      // Get player stats to determine their rank
       const stats = await getPlayerStats(playerID)
       
       let botRank: number
@@ -640,19 +639,16 @@ export default function Chess() {
           draws: stats.bot_draws
         })
         
-        // Generate bot rank within ±10 of player's rank
         botRank = getRandomBotRankForPlayer(stats.bot_elo)
         
         console.log(`🤖 [Matchmaking] Player ELO: ${stats.bot_elo}`)
         console.log(`🤖 [Matchmaking] Generated Bot Rank: ${botRank}`)
         console.log(`🤖 [Matchmaking] Range: ${Math.max(1, stats.bot_elo - 10)} - ${Math.min(1000, stats.bot_elo + 10)}`)
       } else {
-        // Fallback to beginner rank if stats fetch failed
-        botRank = 100 // Default beginner level
+        botRank = 100
         console.warn('⚠️ [Matchmaking] No stats found, using default botRank:', botRank)
       }
       
-      // ALWAYS pass botRank parameter
       const gameUrl = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
       console.log(`🔗 [Matchmaking] Redirecting to:`, gameUrl)
       
@@ -660,7 +656,6 @@ export default function Chess() {
       
     } catch (error) {
       console.error('❌ [Matchmaking] Error during matchmaking:', error)
-      // Even on error, pass a default botRank
       const defaultBotRank = 100
       console.log(`🔗 [Matchmaking] Error fallback - using botRank: ${defaultBotRank}`)
       window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${defaultBotRank}`
@@ -901,7 +896,6 @@ export default function Chess() {
         </div>
       </motion.div>
 
-      {/* Settings Modal */}
       {playerID && (
         <SettingsModal 
           isOpen={showSettings}
@@ -910,7 +904,6 @@ export default function Chess() {
         />
       )}
 
-      {/* Profile Modal */}
       {playerID && (
         <ProfileModal 
           isOpen={showProfile}
