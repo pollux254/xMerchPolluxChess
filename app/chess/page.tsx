@@ -112,54 +112,60 @@ export default function Chess() {
     try {
       console.log("🔍 Checking existing tournament for:", playerAddress)
       
-      const { data: { session } } = await supabase.auth.getSession()
-      console.log("🔐 Current auth session:", !!session, session?.user?.id)
-      
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json'
-      }
-      
-      if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`
-        console.log("🔐 Adding auth header to request")
-      }
-      
-      const res = await fetch(`/api/tournaments/check-player?address=${playerAddress}`, {
-        headers
-      })
-      
-      console.log("🔍 Check player response status:", res.status)
-      
-      if (res.ok) {
-        const data = await res.json()
-        console.log("🔍 Check player response data:", data)
+      const { data } = await supabase
+        .from('tournament_players')
+        .select('tournament_id, tournaments!inner(status, expires_at, created_at)')
+        .eq('player_address', playerAddress)
+        .in('tournaments.status', ['waiting', 'in_progress'])
+        .maybeSingle()
+
+      if (data) {
+        const tournament = Array.isArray(data.tournaments)
+          ? data.tournaments[0]
+          : data.tournaments
         
-        if (data.inTournament && data.tournamentId) {
-          console.log("✅ Player already in tournament:", data.tournamentId, "Status:", data.status)
+        if (tournament) {
+          const expiresAt = tournament.expires_at 
+            ? new Date(tournament.expires_at).getTime()
+            : new Date(tournament.created_at).getTime() + (10 * 60 * 1000)
+          
+          const now = Date.now()
+          
+          // If expired, remove player and DON'T redirect
+          if (expiresAt <= now || tournament.status === 'cancelled') {
+            console.log("🧹 Removing player from expired tournament")
+            await supabase
+              .from('tournament_players')
+              .delete()
+              .eq('player_address', playerAddress)
+              .eq('tournament_id', data.tournament_id)
+            return // Let them make new payment
+          }
+          
+          // Only redirect if tournament is active
+          console.log("✅ Player in active tournament:", data.tournament_id)
           
           setExistingTournament({
-            id: data.tournamentId,
-            status: data.status
+            id: data.tournament_id,
+            status: tournament.status
           })
 
           if (window.location.pathname === '/chess') {
-            if (data.status === "waiting") {
+            if (tournament.status === "waiting") {
               setTimeout(() => {
                 console.log("🚀 Auto-redirecting to waiting room...")
-                window.location.href = `/waiting-room?tournamentId=${data.tournamentId}`
+                window.location.href = `/waiting-room?tournamentId=${data.tournament_id}`
               }, 1500)
-            } else if (data.status === "in_progress" || data.status === "in-progress") {
+            } else if (tournament.status === "in_progress" || tournament.status === "in-progress") {
               setTimeout(() => {
                 console.log("🚀 Auto-redirecting to active game...")
-                window.location.href = `/game-multiplayer?tournamentId=${data.tournamentId}`
+                window.location.href = `/game-multiplayer?tournamentId=${data.tournament_id}`
               }, 1500)
             }
           }
-        } else {
-          console.log("ℹ️ No existing tournament found")
         }
       } else {
-        console.error("❌ Check player request failed:", res.status, await res.text())
+        console.log("ℹ️ No existing tournament found")
       }
     } catch (err) {
       console.error("❌ Error checking existing tournament:", err)
