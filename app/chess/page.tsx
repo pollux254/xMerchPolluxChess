@@ -545,16 +545,50 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-      console.log("📱 Payment device detection:", isMobile ? "MOBILE" : "DESKTOP")
+      // IMPROVED MOBILE DETECTION
+      const isMobileDevice = () => {
+        // Check 1: User agent
+        const userAgent = navigator.userAgent.toLowerCase()
+        const mobileKeywords = ['android', 'webos', 'iphone', 'ipad', 'ipod', 'blackberry', 'windows phone']
+        const hasMobileKeyword = mobileKeywords.some(keyword => userAgent.includes(keyword))
+        
+        // Check 2: Touch support
+        const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+        
+        // Check 3: Screen size
+        const isSmallScreen = window.innerWidth <= 768
+        
+        // Check 4: Standalone mode (PWA)
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+        
+        console.log('📱 Mobile Detection:', {
+          userAgent: hasMobileKeyword,
+          touch: hasTouch,
+          smallScreen: isSmallScreen,
+          standalone: isStandalone,
+          width: window.innerWidth
+        })
+        
+        // Consider it mobile if ANY of these are true
+        return hasMobileKeyword || (hasTouch && isSmallScreen) || isStandalone
+      }
+      
+      const isMobile = isMobileDevice()
+      console.log("📱 Final decision - Device type:", isMobile ? "MOBILE - Direct redirect" : "DESKTOP - Popup")
       
       let xamanPopup: Window | null = null
       
       if (isMobile) {
-        console.log("📱 Mobile payment - Direct redirect to Xaman app")
+        console.log("📱 Executing mobile redirect to Xaman app...")
+        
+        // For mobile: direct redirect (opens Xaman app)
         window.location.href = nextUrl
+        
+        // Don't set timeout or popup for mobile
+        // The WebSocket will still track the payment status
       } else {
-        console.log("💻 Desktop payment - Opening popup")
+        console.log("💻 Opening desktop popup...")
+        
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
         if (!xamanPopup) {
