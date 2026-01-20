@@ -303,7 +303,9 @@ serve(async (req: Request) => {
                   entryFee: tournament.entry_fee,
                   currency: tournament.currency,
                   issuer: tournament.issuer,
-                  signingWallet: memoData.player
+                  signingWallet: memoData.player,
+                  // CRITICAL FIX: Pass the actual tournament ID so join API doesn't search for a new one
+                  tournamentId: memoData.tournament
                 })
               })
 
