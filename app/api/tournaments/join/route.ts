@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '@/lib/supabase-client'
+import { getSupabaseAdminClient } from '@/lib/supabase-client'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = getSupabaseClient()
+    const supabase = getSupabaseAdminClient()
 
     // Build tournament ID early so we can use it in checks
     const network = body.network || 'testnet'

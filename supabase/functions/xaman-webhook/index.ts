@@ -309,7 +309,7 @@ serve(async (req: Request) => {
       } 
       // Handle regular donation
       else if (isRegularDonation) {
-        console.log("💝 Processing regular donation")
+        console.log("� Processing regular donation")
         try {
           const { error: insertError } = await supabase.from("donations").insert({
             network: "xahau",
