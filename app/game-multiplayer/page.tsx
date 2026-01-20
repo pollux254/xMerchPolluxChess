@@ -1,14 +1,19 @@
 "use client"
 
-import { Suspense, useEffect, useState, useCallback } from "react"
+import { Suspense, useEffect, useState, useCallback, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { createClient } from "@supabase/supabase-js"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
 import { motion } from "framer-motion"
+import { Moon, Sun, Monitor } from "lucide-react"
+import { getPlayerSettings, type PlayerSettings } from "@/lib/player-profile"
+import ProfileModal from "@/app/components/ProfileModal"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+type Theme = "light" | "middle" | "dark"
 
 interface GameState {
   id: string
@@ -38,17 +43,67 @@ function GameMultiplayerContent() {
   
   const [game, setGame] = useState<Chess>(new Chess())
   const [gamePosition, setGamePosition] = useState<string>("start")
+  const [visualFen, setVisualFen] = useState<string>("start")
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [playerID, setPlayerID] = useState<string | null>(null)
   const [myColor, setMyColor] = useState<'white' | 'black' | null>(null)
-  const [whiteTime, setWhiteTime] = useState(1200) // 20 minutes in seconds
+  const [whiteTime, setWhiteTime] = useState(1200)
   const [blackTime, setBlackTime] = useState(1200)
+  const [turnStartedAt, setTurnStartedAt] = useState<number>(Date.now())
   const [countdown, setCountdown] = useState(5)
   const [gameStarted, setGameStarted] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
+  
+  // Theme state
+  const [theme, setTheme] = useState<Theme>("light")
+  
+  // Move history navigation
+  const [fenHistory, setFenHistory] = useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const [viewingHistory, setViewingHistory] = useState(false)
+  
+  // Click-to-move
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+  const [legalMoves, setLegalMoves] = useState<string[]>([])
+  
+  // Confirm moves
+  const [settings, setSettings] = useState<PlayerSettings | null>(null)
+  const [pendingMove, setPendingMove] = useState<{from: string, to: string} | null>(null)
+  
+  // Profile modal
+  const [showProfile, setShowProfile] = useState(false)
+  
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const supabase = createClient(supabaseUrl, supabaseKey)
+
+  // Load theme from localStorage
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") as Theme
+    if (savedTheme) {
+      setTheme(savedTheme)
+      document.documentElement.classList.remove("light", "middle", "dark")
+      document.documentElement.classList.add(savedTheme)
+    }
+  }, [])
+
+  const setThemeValue = (newTheme: Theme) => {
+    setTheme(newTheme)
+    document.documentElement.classList.remove("light", "middle", "dark")
+    document.documentElement.classList.add(newTheme)
+    localStorage.setItem("theme", newTheme)
+  }
+
+  // Load player settings
+  useEffect(() => {
+    if (playerID && playerID !== "Guest") {
+      getPlayerSettings(playerID).then(playerSettings => {
+        if (playerSettings) {
+          setSettings(playerSettings)
+        }
+      })
+    }
+  }, [playerID])
 
   // Initialize game
   useEffect(() => {
@@ -146,34 +201,57 @@ function GameMultiplayerContent() {
     }, 1000)
   }
 
-  // Timer countdown (only runs when it's current player's turn)
+  // WALL CLOCK TIMER: Recalculate from database every second (ANTI-CHEAT)
   useEffect(() => {
-    if (!gameStarted || !gameState || gameState.status !== 'in_progress') return
-
-    const interval = setInterval(() => {
-      const isWhiteTurn = game.turn() === 'w'
-      
-      if (isWhiteTurn) {
-        setWhiteTime(prev => {
-          const newTime = Math.max(0, prev - 1)
-          if (newTime === 0) {
-            handleTimeout('white')
-          }
-          return newTime
-        })
-      } else {
-        setBlackTime(prev => {
-          const newTime = Math.max(0, prev - 1)
-          if (newTime === 0) {
-            handleTimeout('black')
-          }
-          return newTime
-        })
+    if (!gameStarted || !gameState || gameState.status !== 'in_progress' || !gameId) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
       }
+      return
+    }
+
+    intervalRef.current = setInterval(() => {
+      const now = Date.now()
+      const elapsedMs = now - turnStartedAt
+      const elapsedSeconds = Math.floor(elapsedMs / 1000)
+
+      const isWhiteTurn = game.turn() === 'w'
+
+      // Fetch STORED time from database, subtract elapsed
+      supabase
+        .from('tournament_games')
+        .select('white_time_remaining, black_time_remaining, turn_started_at')
+        .eq('id', gameId)
+        .single()
+        .then(({ data, error }) => {
+          if (error || !data) return
+
+          if (isWhiteTurn) {
+            const calculatedTime = Math.max(0, data.white_time_remaining - elapsedSeconds)
+            setWhiteTime(calculatedTime)
+            
+            if (calculatedTime <= 0) {
+              handleTimeout('white')
+            }
+          } else {
+            const calculatedTime = Math.max(0, data.black_time_remaining - elapsedSeconds)
+            setBlackTime(calculatedTime)
+            
+            if (calculatedTime <= 0) {
+              handleTimeout('black')
+            }
+          }
+        })
     }, 1000)
 
-    return () => clearInterval(interval)
-  }, [gameStarted, gameState, game])
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [gameStarted, gameState, game, turnStartedAt, gameId])
 
   // Handle timeout
   async function handleTimeout(color: 'white' | 'black') {
@@ -240,18 +318,34 @@ function GameMultiplayerContent() {
         turn: game.turn() === 'w' ? 'white' : 'black'
       }
 
+      // WALL CLOCK: Calculate elapsed time and update
+      const now = Date.now()
+      const elapsedMs = now - turnStartedAt
+      const elapsedSeconds = Math.floor(elapsedMs / 1000)
+      
+      // Deduct elapsed time from my clock
+      const updatedMyTime = Math.max(0, (myColor === 'white' ? whiteTime : blackTime) - elapsedSeconds)
+      
       const updates: any = {
         game_state: newGameState,
-        last_move_at: new Date().toISOString(),
+        last_move_at: new Date(now).toISOString(),
+        turn_started_at: new Date(now).toISOString(), // Opponent's turn starts NOW
         first_move_made: true
       }
 
-      // Update timers
+      // Update timers - save my updated time, opponent's time unchanged
       if (myColor === 'white') {
-        updates.white_time_remaining = whiteTime
-      } else {
+        updates.white_time_remaining = updatedMyTime
         updates.black_time_remaining = blackTime
+      } else {
+        updates.white_time_remaining = whiteTime
+        updates.black_time_remaining = updatedMyTime
       }
+      
+      console.log("⏰ [Move] Elapsed:", elapsedSeconds, "s, My time:", updatedMyTime, "s")
+      
+      // Reset turn timer for opponent
+      setTurnStartedAt(now)
 
       // Check for game end
       if (game.isCheckmate()) {
@@ -446,8 +540,45 @@ function GameMultiplayerContent() {
     )
   }
 
+  // Theme-aware timer colors
+  const getTimerColor = (isActive: boolean, timeRemaining: number) => {
+    if (isActive && timeRemaining < 30) return "text-red-500"
+    return theme === "light" ? "text-gray-900" : "text-cyan-300"
+  }
+  
+  const myTimerColor = getTimerColor(
+    game.turn() === (myColor === 'white' ? 'w' : 'b'),
+    myColor === 'white' ? whiteTime : blackTime
+  )
+  const opponentTimerColor = getTimerColor(
+    game.turn() !== (myColor === 'white' ? 'w' : 'b'),
+    myColor === 'white' ? blackTime : whiteTime
+  )
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white p-4">
+    <div className={`min-h-screen ${theme === "light" ? "bg-gradient-to-b from-gray-50 via-gray-100 to-gray-200" : "bg-gradient-to-br from-gray-900 via-purple-900/30 to-black"} ${theme === "light" ? "text-gray-900" : "text-white"} p-4`}>
+      {/* Theme Switcher */}
+      <div className="fixed top-4 right-4 z-50 flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
+        <button
+          onClick={() => setThemeValue("light")}
+          className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+        >
+          <Sun className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setThemeValue("middle")}
+          className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+        >
+          <Monitor className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setThemeValue("dark")}
+          className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+        >
+          <Moon className="h-5 w-5" />
+        </button>
+      </div>
+      
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Panel - Opponent Info */}
@@ -462,7 +593,7 @@ function GameMultiplayerContent() {
                   : gameState?.player_white_address.slice(0, 10) + '...' + gameState?.player_white_address.slice(-6)
                 }
               </p>
-              <div className="text-4xl font-black text-cyan-300">
+              <div className={`text-4xl font-black ${opponentTimerColor}`}>
                 {formatTime(myColor === 'white' ? blackTime : whiteTime)}
               </div>
               {game.turn() !== (myColor === 'white' ? 'w' : 'b') && (
@@ -515,7 +646,7 @@ function GameMultiplayerContent() {
               <p className="font-mono text-sm mb-4">
                 {playerID?.slice(0, 10)}...{playerID?.slice(-6)}
               </p>
-              <div className="text-4xl font-black text-cyan-300">
+              <div className={`text-4xl font-black ${myTimerColor}`}>
                 {formatTime(myColor === 'white' ? whiteTime : blackTime)}
               </div>
               {game.turn() === (myColor === 'white' ? 'w' : 'b') && (

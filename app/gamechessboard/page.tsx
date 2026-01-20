@@ -1179,8 +1179,14 @@ function GameContent() {
     )
   }
 
-  const playerClockColor = activePlayer === "player" && playerTime < 30 ? "text-red-500" : "text-white"
-  const botClockColor = activePlayer === "bot" && botTime < 30 ? "text-red-500" : "text-white"
+  // Theme-aware timer colors: black for light theme, white for dark themes
+  const getTimerColor = (isActive: boolean, timeRemaining: number) => {
+    if (isActive && timeRemaining < 30) return "text-red-500" // Low time warning (always red)
+    return theme === "light" ? "text-gray-900" : "text-white" // Theme-aware color
+  }
+  
+  const playerClockColor = getTimerColor(activePlayer === "player", playerTime)
+  const botClockColor = getTimerColor(activePlayer === "bot", botTime)
 
   // Click-to-move handler
   const onSquareClick = ({ square, piece }: { piece: any; square: string }) => {
