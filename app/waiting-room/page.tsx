@@ -139,10 +139,24 @@ function WaitingRoomContent() {
 
         // Check if tournament started
         if (data.status === "in_progress") {
-          console.log("🚀 Tournament started!")
-          setTimeout(() => {
-            window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-          }, 2000)
+          console.log("🚀 Tournament started! Checking if game exists...")
+          
+          // CRITICAL FIX: Verify game exists before redirecting
+          const { data: game } = await supabase
+            .from('tournament_games')
+            .select('id, status')
+            .eq('tournament_id', tournamentId)
+            .maybeSingle()  // ✅ Returns null if no game exists
+          
+          if (game) {
+            console.log("✅ Game exists, redirecting...")
+            setTimeout(() => {
+              window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
+            }, 2000)
+          } else {
+            console.log("⏳ Game being created, waiting...")
+            // Game is being created, keep polling
+          }
         }
 
       } catch (err) {
@@ -201,9 +215,23 @@ function WaitingRoomContent() {
             
             if (payload.new.status === "in_progress") {
               clearInterval(statusPollInterval)
-              setTimeout(() => {
-                window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-              }, 2000)
+              
+              // CRITICAL FIX: Verify game exists before redirecting
+              supabase
+                .from('tournament_games')
+                .select('id, status')
+                .eq('tournament_id', tournamentId)
+                .maybeSingle()  // ✅ Returns null if no game exists
+                .then(({ data: game }) => {
+                  if (game) {
+                    console.log("✅ Game exists, redirecting from realtime update...")
+                    setTimeout(() => {
+                      window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
+                    }, 2000)
+                  } else {
+                    console.log("⏳ Game being created, waiting...")
+                  }
+                })
             }
 
             if (payload.new.status === "cancelled") {
