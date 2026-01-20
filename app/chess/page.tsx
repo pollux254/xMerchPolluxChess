@@ -78,12 +78,13 @@ export default function Chess() {
   }, [])
 
   // Fix 2: Auto-polling to check if player joined from another tab/device
+  // Reduced frequency to avoid overwhelming the client
   useEffect(() => {
     if (!playerID) return
     
     const interval = setInterval(() => {
       checkExistingTournament(playerID)
-    }, 3000)
+    }, 10000) // Changed from 3s to 10s
     
     return () => clearInterval(interval)
   }, [playerID])
