@@ -125,14 +125,10 @@ function GameMultiplayerContent() {
   // Load game from database
   async function loadGame(playerAddress: string) {
     try {
-      // CRITICAL FIX: Query by either gameId OR tournamentId
+      // CRITICAL FIX: Simpler query without complex joins
       let query = supabase
         .from('tournament_games')
-        .select(`
-          *,
-          white_player:tournament_players!player_white(player_address),
-          black_player:tournament_players!player_black(player_address)
-        `)
+        .select('*')
       
       if (gameId) {
         query = query.eq('id', gameId)
@@ -142,14 +138,30 @@ function GameMultiplayerContent() {
       
       const { data, error } = await query.single()
 
-      if (error) throw error
+      if (error) {
+        console.error("Database error:", error)
+        throw new Error(`Game not found: ${error.message}`)
+      }
       if (!data) throw new Error("Game not found")
 
       console.log("🎮 Game loaded:", data)
 
+      // Get player addresses from tournament_players
+      const { data: players } = await supabase
+        .from('tournament_players')
+        .select('id, player_address')
+        .in('id', [data.player_white, data.player_black])
+      
+      const whitePlayer = players?.find(p => p.id === data.player_white)
+      const blackPlayer = players?.find(p => p.id === data.player_black)
+      
+      if (!whitePlayer || !blackPlayer) {
+        throw new Error("Player data not found")
+      }
+
       // Determine player color
-      const isWhite = data.white_player.player_address === playerAddress
-      const isBlack = data.black_player.player_address === playerAddress
+      const isWhite = whitePlayer.player_address === playerAddress
+      const isBlack = blackPlayer.player_address === playerAddress
       
       if (!isWhite && !isBlack) {
         throw new Error("You are not a player in this game")
@@ -159,8 +171,8 @@ function GameMultiplayerContent() {
       
       setGameState({
         ...data,
-        player_white_address: data.white_player.player_address,
-        player_black_address: data.black_player.player_address,
+        player_white_address: whitePlayer.player_address,
+        player_black_address: blackPlayer.player_address,
       })
 
       // Load game position
@@ -181,6 +193,14 @@ function GameMultiplayerContent() {
       } else if (data.status === 'in_progress') {
         // Start countdown
         startCountdown()
+        
+        // Start first-move timeout check (2 minutes for white to move)
+        startFirstMoveTimeout(data)
+      } else if (data.status === 'cancelled' || data.status === 'completed') {
+        // Game already ended
+        alert(`This game has ${data.status}. Returning to lobby...`)
+        window.location.href = '/chess'
+        return
       }
 
       setLoading(false)
@@ -205,6 +225,56 @@ function GameMultiplayerContent() {
         setGameStarted(true)
       }
     }, 1000)
+  }
+
+  // First move timeout - if white doesn't move in 2 minutes, cancel game
+  function startFirstMoveTimeout(gameData: any) {
+    const startedAt = new Date(gameData.started_at || gameData.created_at).getTime()
+    const now = Date.now()
+    const elapsedSeconds = Math.floor((now - startedAt) / 1000)
+    const remainingSeconds = Math.max(0, 120 - elapsedSeconds) // 2 minutes = 120 seconds
+    
+    console.log(`⏰ First move timeout: ${remainingSeconds}s remaining`)
+    
+    if (remainingSeconds <= 0 && !gameData.first_move_made) {
+      // Already expired - cancel now
+      handleFirstMoveTimeout()
+      return
+    }
+    
+    // Set timeout for remaining time
+    const timeoutId = setTimeout(async () => {
+      // Check if first move was made
+      const { data: currentGame } = await supabase
+        .from('tournament_games')
+        .select('first_move_made, status')
+        .eq('id', gameData.id || tournamentId)
+        .single()
+      
+      if (currentGame && !currentGame.first_move_made && currentGame.status === 'in_progress') {
+        handleFirstMoveTimeout()
+      }
+    }, remainingSeconds * 1000)
+    
+    return () => clearTimeout(timeoutId)
+  }
+
+  async function handleFirstMoveTimeout() {
+    console.log("⏰ First move timeout - cancelling game")
+    
+    const gameIdToUpdate = gameState?.id || tournamentId
+    
+    await supabase
+      .from('tournament_games')
+      .update({
+        status: 'cancelled',
+        result_reason: 'first_move_timeout',
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', gameIdToUpdate)
+    
+    alert("⏰ Game cancelled - White player did not make first move within 2 minutes.\n\nReturning to lobby...")
+    window.location.href = '/chess'
   }
 
   // WALL CLOCK TIMER: Recalculate from database every second (ANTI-CHEAT)
