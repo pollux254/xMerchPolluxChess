@@ -210,12 +210,20 @@ serve(async (req: Request) => {
           console.log("✅ Tournament found:", tournament.id)
 
           // Add player to tournament
+          // Get current player count for order
+          const { count: currentCount } = await supabase
+            .from('tournament_players')
+            .select('*', { count: 'exact', head: true })
+            .eq('tournament_id', memoData.tournament)
+
           const { error: playerError } = await supabase
             .from('tournament_players')
             .insert({
               tournament_id: memoData.tournament,
               player_address: memoData.player,
-              status: 'waiting',
+              player_order: (currentCount || 0) + 1,
+              status: 'joined',  // CRITICAL FIX: Use 'joined' not 'waiting'
+              is_active: true,
               joined_at: new Date().toISOString()
             })
 
@@ -245,7 +253,7 @@ serve(async (req: Request) => {
             .from('tournament_players')
             .select('*', { count: 'exact', head: true })
             .eq('tournament_id', memoData.tournament)
-            .eq('status', 'waiting')
+            .eq('status', 'joined')  // CRITICAL FIX: Match the insert status
 
           console.log("👥 Current player count:", count, "/", tournament.tournament_size)
 
