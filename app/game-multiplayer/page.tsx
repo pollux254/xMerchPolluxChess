@@ -36,7 +36,9 @@ interface GameState {
 
 function GameMultiplayerContent() {
   const searchParams = useSearchParams()
+  // CRITICAL FIX: Accept both gameId and tournamentId parameters
   const gameId = searchParams.get("gameId")
+  const tournamentId = searchParams.get("tournamentId")
   
   const [game, setGame] = useState<Chess>(new Chess())
   const [gamePosition, setGamePosition] = useState<string>("start")
@@ -104,8 +106,8 @@ function GameMultiplayerContent() {
 
   // Initialize game
   useEffect(() => {
-    if (!gameId) {
-      setError("No game ID provided")
+    if (!gameId && !tournamentId) {
+      setError("No game ID or tournament ID provided")
       return
     }
 
@@ -118,20 +120,27 @@ function GameMultiplayerContent() {
     
     setPlayerID(storedPlayerID)
     loadGame(storedPlayerID)
-  }, [gameId])
+  }, [gameId, tournamentId])
 
   // Load game from database
   async function loadGame(playerAddress: string) {
     try {
-      const { data, error } = await supabase
+      // CRITICAL FIX: Query by either gameId OR tournamentId
+      let query = supabase
         .from('tournament_games')
         .select(`
           *,
           white_player:tournament_players!player_white(player_address),
           black_player:tournament_players!player_black(player_address)
         `)
-        .eq('id', gameId)
-        .single()
+      
+      if (gameId) {
+        query = query.eq('id', gameId)
+      } else if (tournamentId) {
+        query = query.eq('tournament_id', tournamentId)
+      }
+      
+      const { data, error } = await query.single()
 
       if (error) throw error
       if (!data) throw new Error("Game not found")
