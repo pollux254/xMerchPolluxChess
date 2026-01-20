@@ -623,33 +623,32 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // CRITICAL: Detect REAL mobile devices only (not just small screens)
-      const userAgent = navigator.userAgent.toLowerCase()
-      const isActualMobile = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent)
-
-      console.log("📱 Device Detection:", {
-        userAgent: userAgent.substring(0, 50) + "...",
-        width: window.innerWidth,
-        touch: navigator.maxTouchPoints,
-        isActualMobile: isActualMobile ? "YES - Direct to app" : "NO - Web popup"
-      })
+      // Mobile detection
+      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
       
       let xamanPopup: Window | null = null
       
-      if (isActualMobile) {
-        // MOBILE ONLY: Use deep link to open Xaman app
-        const deepLink = `xumm://xumm.app/sign/${uuid}`
-        console.log("📱 Mobile device - Using deep link:", deepLink)
+      if (isMobileDevice) {
+        // Try BOTH deep link formats for compatibility
+        const deepLink1 = `xumm://xumm.app/sign/${uuid}`
+        const deepLink2 = `xaman://xumm.app/sign/${uuid}` // Alternative format
         
-        // For mobile: use deep link to open app directly
-        window.location.href = deepLink
+        console.log("📱 Mobile detected - attempting deep link")
+        console.log("Deep link:", deepLink1)
         
-        // Don't set timeout or popup for mobile
-        // The WebSocket will still track the payment status
+        // Try primary format
+        window.location.href = deepLink1
+        
+        // Fallback to web if deep link fails after 1 second
+        setTimeout(() => {
+          if (document.visibilityState === 'visible') {
+            console.log("⚠️ Deep link may have failed, trying web URL")
+            window.location.href = nextUrl
+          }
+        }, 1000)
       } else {
-        // DESKTOP/LAPTOP/TABLET: Use web URL in popup
-        console.log("💻 Desktop device - Opening web popup...")
-        
+        // Desktop: use popup
+        console.log("💻 Desktop - Opening popup")
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
         if (!xamanPopup) {
