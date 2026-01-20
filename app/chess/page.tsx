@@ -635,23 +635,16 @@ export default function Chess() {
       let xamanPopup: Window | null = null
       
       if (isMobileDevice) {
-        // Try BOTH deep link formats for compatibility
-        const deepLink1 = `xumm://xumm.app/sign/${uuid}`
-        const deepLink2 = `xaman://xumm.app/sign/${uuid}` // Alternative format
+        console.log("📱 Mobile: Using deep link for Xaman app")
+        const deepLink = `xumm://xumm.app/sign/${uuid}`
         
-        console.log("📱 Mobile detected - attempting deep link")
-        console.log("Deep link:", deepLink1)
+        console.log("📱 Deep link:", deepLink)
         
-        // Try primary format
-        window.location.href = deepLink1
+        // Open Xaman app with deep link
+        window.location.href = deepLink
         
-        // Fallback to web if deep link fails after 1 second
-        setTimeout(() => {
-          if (document.visibilityState === 'visible') {
-            console.log("⚠️ Deep link may have failed, trying web URL")
-            window.location.href = nextUrl
-          }
-        }, 1000)
+        // DON'T redirect to nextUrl - stay on page and track via WebSocket
+        // The WebSocket will handle redirect after payment is signed
       } else {
         // Desktop: use popup
         console.log("💻 Desktop - Opening popup")
