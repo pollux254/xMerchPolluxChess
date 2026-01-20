@@ -678,7 +678,8 @@ export default function Chess() {
           
           // Show brief loading indicator instead of alert
           setLoadingPay(true)
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          // Wait 3 seconds to give webhook time to add player to database
+          await new Promise(resolve => setTimeout(resolve, 3000))
           window.location.href = `/waiting-room?tournamentId=${tournamentId}`
           
           ws.close()
