@@ -2,16 +2,13 @@
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react"
 import { useSearchParams } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
 import { motion } from "framer-motion"
 import { Moon, Sun, Monitor } from "lucide-react"
+import { getSupabaseClient } from "@/lib/supabase-client"
 import { getPlayerSettings, type PlayerSettings } from "@/lib/player-profile"
 import ProfileModal from "@/app/components/ProfileModal"
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 type Theme = "light" | "middle" | "dark"
 
@@ -75,7 +72,7 @@ function GameMultiplayerContent() {
   const [showProfile, setShowProfile] = useState(false)
   
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const supabase = createClient(supabaseUrl, supabaseKey)
+  const supabase = getSupabaseClient()
 
   // Load theme from localStorage
   useEffect(() => {
