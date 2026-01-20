@@ -39,6 +39,10 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseClient()
 
+    // Build tournament ID early so we can use it in checks
+    const network = body.network || 'testnet'
+    const potentialTournamentId = `${currency}_${tournamentSize}_${entryFee}_${network.toUpperCase()}_ROOM1`
+
     // Check if player is already in any active tournament
     const { data: existingEntries } = await supabase
       .from('tournament_players')
@@ -48,19 +52,49 @@ export async function POST(request: NextRequest) {
 
     if (existingEntries && existingEntries.length > 0) {
       const existing = existingEntries[0]
-      const tournament = Array.isArray(existing.tournaments)
-        ? existing.tournaments[0]
-        : existing.tournaments
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Already in active tournament',
-          tournamentId: existing.tournament_id,
-          status: tournament?.status || 'waiting',
-        },
-        { status: 409 }
+      
+      // CRITICAL FIX: If they're in THIS tournament but game doesn't exist yet,
+      // let them through to create the game
+      const isInRequestedTournament = existingEntries.some(
+        entry => entry.tournament_id === potentialTournamentId
       )
+      
+      if (!isInRequestedTournament) {
+        // They're in a DIFFERENT tournament - reject
+        const tournament = Array.isArray(existing.tournaments)
+          ? existing.tournaments[0]
+          : existing.tournaments
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Already in active tournament',
+            tournamentId: existing.tournament_id,
+            status: tournament?.status || 'waiting',
+          },
+          { status: 409 }
+        )
+      }
+      
+      // They're in THIS tournament - check if game already exists
+      const { data: existingGame } = await supabase
+        .from('tournament_games')
+        .select('id')
+        .eq('tournament_id', potentialTournamentId)
+        .maybeSingle()
+      
+      if (existingGame) {
+        console.log('[Tournament Join] Game already exists, player already in')
+        return NextResponse.json({
+          success: true,
+          tournamentId: potentialTournamentId,
+          isFull: true,
+          alreadyJoined: true,
+          message: 'Already in tournament and game exists',
+        })
+      }
+      
+      console.log('[Tournament Join] Player in tournament but no game yet - proceeding to create')
     }
 
     // Find waiting tournaments with exact match
