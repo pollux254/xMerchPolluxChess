@@ -614,10 +614,13 @@ export default function Chess() {
       let xamanPopup: Window | null = null
       
       if (isMobile) {
+        // CRITICAL FIX: Use deep link for mobile, not web URL
+        const deepLink = `xumm://xumm.app/sign/${uuid}`
+        console.log("📱 Using Xaman deep link:", deepLink)
         console.log("📱 Executing mobile redirect to Xaman app...")
         
-        // For mobile: direct redirect (opens Xaman app)
-        window.location.href = nextUrl
+        // For mobile: use deep link to open app directly via notification
+        window.location.href = deepLink
         
         // Don't set timeout or popup for mobile
         // The WebSocket will still track the payment status
