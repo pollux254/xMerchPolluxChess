@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Wallet validation
     if (signingWallet && signingWallet !== playerAddress) {
       console.error('[Tournament Join] Wallet mismatch:', {
         playerAddress,
@@ -73,7 +72,6 @@ export async function POST(request: NextRequest) {
       .eq('entry_fee', entryFee)
       .eq('currency', currency)
 
-    // Filter issuer correctly (null vs string)
     const matchingTournaments = (tournaments || []).filter(t =>
       issuer == null ? t.issuer == null : t.issuer === issuer
     )
@@ -138,36 +136,64 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Get current player count for order
-    const { count: currentCount } = await supabase
+    // CRITICAL: Get FRESH count and check if still room (race condition protection)
+    const { count: freshCount } = await supabase
       .from('tournament_players')
       .select('*', { count: 'exact', head: true })
       .eq('tournament_id', tournamentId)
 
-    // Add player with correct status
+    console.log(`[Tournament Join] Fresh count for ${tournamentId}: ${freshCount}/${tournamentSize}`)
+
+    // Check if tournament is already full
+    if ((freshCount || 0) >= tournamentSize) {
+      console.log(`[Tournament Join] Tournament ${tournamentId} is FULL (${freshCount}/${tournamentSize})`)
+      return NextResponse.json(
+        { 
+          error: 'Tournament is full',
+          message: 'This tournament just filled up. Please try joining another one.'
+        },
+        { status: 409 }
+      )
+    }
+
+    // Add player with status='joined'
     const { error: insertErr } = await supabase
       .from('tournament_players')
       .insert({
         tournament_id: tournamentId,
         player_address: playerAddress,
-        player_order: (currentCount || 0) + 1,
+        player_order: (freshCount || 0) + 1,
         status: 'joined',
         joined_at: new Date().toISOString(),
       })
 
     if (insertErr) {
       console.error('[Tournament Join] Insert error:', insertErr)
+      
+      // If duplicate key error, player already joined
+      if (insertErr.code === '23505') {
+        return NextResponse.json({
+          success: true,
+          tournamentId,
+          message: 'Already joined',
+        })
+      }
+      
       return NextResponse.json(
         { error: 'Failed to join tournament' },
         { status: 500 }
       )
     }
 
-    const newCount = (currentCount || 0) + 1
+    const newCount = (freshCount || 0) + 1
     const isFull = newCount >= tournamentSize
+
+    console.log(`[Tournament Join] Player added! New count: ${newCount}/${tournamentSize}, isFull: ${isFull}`)
 
     // Start tournament if full
     if (isFull) {
+      console.log(`[Tournament] Tournament ${tournamentId} is FULL - Starting game!`)
+      
       await supabase
         .from('tournaments')
         .update({
@@ -175,6 +201,43 @@ export async function POST(request: NextRequest) {
           started_at: new Date().toISOString(),
         })
         .eq('id', tournamentId)
+      
+      // Get both players
+      const { data: players } = await supabase
+        .from('tournament_players')
+        .select('player_address, player_order')
+        .eq('tournament_id', tournamentId)
+        .order('player_order')
+      
+      if (players && players.length === tournamentSize) {
+        console.log(`[Tournament] Creating game for ${tournamentSize} players`)
+        
+        // Create game record
+        const { error: gameError } = await supabase
+          .from('tournament_games')
+          .insert({
+            tournament_id: tournamentId,
+            player_white: players[0].player_address,
+            player_black: players[1].player_address,
+            current_turn: 'white',
+            white_time_remaining: 1200,
+            black_time_remaining: 1200,
+            turn_started_at: new Date().toISOString(),
+            last_move_at: new Date().toISOString(),
+            first_move_made: false,
+            started_at: new Date().toISOString(),
+            status: 'active',
+            game_state: '{"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}',
+          })
+        
+        if (gameError) {
+          console.error(`[Tournament] Failed to create game:`, gameError)
+        } else {
+          console.log(`[Tournament] Game created successfully for ${tournamentId}`)
+        }
+      } else {
+        console.error(`[Tournament] Expected ${tournamentSize} players but found ${players?.length}`)
+      }
     }
 
     return NextResponse.json({
