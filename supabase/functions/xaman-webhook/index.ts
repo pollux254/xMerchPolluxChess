@@ -271,25 +271,35 @@ serve(async (req: Request) => {
 
           console.log("✅ Transaction logged")
 
-          // Check if tournament is full
-          const { count } = await supabase
-            .from('tournament_players')
-            .select('*', { count: 'exact', head: true })
-            .eq('tournament_id', memoData.tournament)
-            .eq('status', 'joined')  // CRITICAL FIX: Match the insert status
+          // CRITICAL FIX: Call join API to handle game creation
+          const joinApiUrl = `${SUPABASE_URL.replace('/rest/v1', '')}/api/tournaments/join`
+          console.log("🔗 Calling join API:", joinApiUrl)
+          
+          try {
+            const joinResponse = await fetch(joinApiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                playerAddress: memoData.player,
+                tournamentSize: tournament.tournament_size,
+                entryFee: tournament.entry_fee,
+                currency: tournament.currency,
+                issuer: tournament.issuer,
+                signingWallet: memoData.player
+              })
+            })
 
-          console.log("👥 Current player count:", count, "/", tournament.tournament_size)
+            const joinResult = await joinResponse.json()
+            console.log("✅ Join API response:", joinResult)
 
-          if (count && count >= tournament.tournament_size) {
-            console.log("🎉 Tournament is FULL! Starting...")
-            
-            // Tournament is full - start it
-            await supabase
-              .from('tournaments')
-              .update({ status: 'in_progress' })
-              .eq('id', memoData.tournament)
-
-            console.log("✅ Tournament status updated to in_progress")
+            if (joinResult.isFull) {
+              console.log("🎉 Tournament is FULL! Game should be created")
+            }
+          } catch (joinError) {
+            console.error("❌ Join API call failed:", joinError)
+            // Don't throw - player is already added to database
           }
 
         } catch (dbError) {
