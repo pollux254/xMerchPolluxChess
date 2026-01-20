@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     // Find waiting tournaments with exact match
     const { data: tournaments } = await supabase
       .from('tournaments')
-      .select('id, tournament_size, entry_fee, currency, issuer, status')
+      .select('id, tournament_size, entry_fee, currency, issuer, status, expires_at, created_at')
       .eq('status', 'waiting')
       .eq('tournament_size', tournamentSize)
       .eq('entry_fee', entryFee)
@@ -77,9 +77,20 @@ export async function POST(request: NextRequest) {
     )
 
     let tournamentId: string | null = null
+    const now = Date.now()
 
-    // Find a tournament that's not full
+    // Find a tournament that's not full AND not expired
     for (const t of matchingTournaments) {
+      // CRITICAL: Check if tournament is expired
+      const expiresAt = t.expires_at 
+        ? new Date(t.expires_at).getTime() 
+        : new Date(t.created_at).getTime() + (10 * 60 * 1000)
+      
+      if (expiresAt <= now) {
+        console.log(`[Tournament Join] Skipping expired tournament ${t.id}`)
+        continue // Skip expired tournaments
+      }
+
       const { count } = await supabase
         .from('tournament_players')
         .select('*', { count: 'exact', head: true })
@@ -87,6 +98,7 @@ export async function POST(request: NextRequest) {
 
       if ((count || 0) < t.tournament_size) {
         tournamentId = t.id
+        console.log(`[Tournament Join] Found valid tournament ${t.id}, expires in ${Math.floor((expiresAt - now) / 1000)}s`)
         break
       }
     }
