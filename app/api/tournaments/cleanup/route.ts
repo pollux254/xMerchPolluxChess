@@ -262,6 +262,7 @@ export async function POST(request: NextRequest) {
       .from('tournament_players')
       .select(`
         tournament_id,
+        joined_at,
         tournaments!inner (
           id,
           status,
