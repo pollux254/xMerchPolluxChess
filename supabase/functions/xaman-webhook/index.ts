@@ -233,13 +233,13 @@ serve(async (req: Request) => {
             )
           }
 
-          // Get current player count
+          // Get current player count BEFORE insert
           const { count: currentCount } = await supabase
             .from('tournament_players')
             .select('*', { count: 'exact', head: true })
             .eq('tournament_id', memoData.tournament)
 
-          console.log(`Current players: ${currentCount}/${tournament.tournament_size}`)
+          console.log(`📊 Current players BEFORE insert: ${currentCount}/${tournament.tournament_size}`)
 
           // Add player to tournament
           const { error: playerError } = await supabase
@@ -259,6 +259,16 @@ serve(async (req: Request) => {
 
           console.log("✅ Player added to tournament")
 
+          // CRITICAL FIX: Verify the insert actually worked - get FRESH count after insert
+          const { count: verifiedCount } = await supabase
+            .from('tournament_players')
+            .select('*', { count: 'exact', head: true })
+            .eq('tournament_id', memoData.tournament)
+
+          console.log(`✅ Verified count AFTER insert: ${verifiedCount}/${tournament.tournament_size}`)
+
+          const finalCount = verifiedCount || 0
+
           // Log transaction
           await supabase
             .from('hook_logs')
@@ -268,14 +278,12 @@ serve(async (req: Request) => {
               player_address: memoData.player,
               network: memoData.network || 'testnet',
               status: 'success',
-              message: `Player ${memoData.player} joined tournament ${memoData.tournament}`
+              message: `Player ${memoData.player} joined tournament ${memoData.tournament} (${finalCount}/${tournament.tournament_size})`
             })
-
-          const finalCount = (currentCount || 0) + 1
 
           // Check if tournament is now full
           if (finalCount >= tournament.tournament_size) {
-            console.log("🎉 Tournament is FULL! Calling join API to create game...")
+            console.log(`🎉 Tournament is FULL! (${finalCount}/${tournament.tournament_size}) Calling join API to create game...`)
             
             // CRITICAL FIX: Wait 2 seconds for database transaction to fully commit
             console.log("⏳ Waiting 2 seconds for database to commit...")
@@ -300,7 +308,7 @@ serve(async (req: Request) => {
               })
 
               const joinResult = await joinResponse.json()
-              console.log("✅ Join API response:", joinResult)
+              console.log("✅ Join API response:", JSON.stringify(joinResult))
               
               if (joinResult.isFull && joinResult.success) {
                 console.log("🎮 Game should be created! Tournament:", memoData.tournament)
@@ -311,7 +319,7 @@ serve(async (req: Request) => {
               console.error("❌ Join API call failed:", joinError)
             }
           } else {
-            console.log(`✅ Player added: ${finalCount}/${tournament.tournament_size}`)
+            console.log(`✅ Player added: ${finalCount}/${tournament.tournament_size} - waiting for more players`)
           }
 
         } catch (dbError) {
