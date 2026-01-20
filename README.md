@@ -318,3 +318,4 @@ NEXT_PUBLIC_XAHAU_NETWORK_ID="21337"
 ## 📄 License
 
 MIT © 2025 MWorks Design LLC
+# Deployment trigger
