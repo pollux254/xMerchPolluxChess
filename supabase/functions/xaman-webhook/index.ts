@@ -209,7 +209,7 @@ serve(async (req: Request) => {
 
           console.log("✅ Tournament found:", tournament.id)
 
-          // Fix 4: Check if player already in tournament BEFORE inserting
+          // Check if player already in tournament
           const { data: existingPlayer } = await supabase
             .from('tournament_players')
             .select('id')
@@ -233,24 +233,26 @@ serve(async (req: Request) => {
             )
           }
 
-          // Add player to tournament
-          // Get current player count for order
+          // Get current player count
           const { count: currentCount } = await supabase
             .from('tournament_players')
             .select('*', { count: 'exact', head: true })
             .eq('tournament_id', memoData.tournament)
 
+          console.log(`Current players: ${currentCount}/${tournament.tournament_size}`)
+
+          // Add player to tournament
           const { error: playerError } = await supabase
             .from('tournament_players')
             .insert({
               tournament_id: memoData.tournament,
               player_address: memoData.player,
               player_order: (currentCount || 0) + 1,
-              status: 'joined',  // CRITICAL FIX: Use 'joined' not 'waiting'
+              status: 'joined',
               joined_at: new Date().toISOString()
             })
 
-          if (playerError && playerError.code !== '23505') { // Ignore duplicate
+          if (playerError) {
             console.error("❌ Failed to add player:", playerError)
             throw playerError
           }
@@ -269,38 +271,36 @@ serve(async (req: Request) => {
               message: `Player ${memoData.player} joined tournament ${memoData.tournament}`
             })
 
-          console.log("✅ Transaction logged")
+          const finalCount = (currentCount || 0) + 1
 
-          // CRITICAL FIX: Call join API at the VERCEL deployment URL
-          const SITE_URL = Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://xmerch-polluxchess.vercel.app"
-          const joinApiUrl = `${SITE_URL}/api/tournaments/join`
-          console.log("🔗 Calling join API:", joinApiUrl)
-          
-          try {
-            const joinResponse = await fetch(joinApiUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                playerAddress: memoData.player,
-                tournamentSize: tournament.tournament_size,
-                entryFee: tournament.entry_fee,
-                currency: tournament.currency,
-                issuer: tournament.issuer,
-                signingWallet: memoData.player
+          // Check if tournament is now full
+          if (finalCount >= tournament.tournament_size) {
+            console.log("🎉 Tournament is FULL! Calling join API to create game...")
+            
+            const SITE_URL = Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://xmerch-polluxchess.vercel.app"
+            const joinApiUrl = `${SITE_URL}/api/tournaments/join`
+            
+            try {
+              const joinResponse = await fetch(joinApiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  playerAddress: memoData.player,
+                  tournamentSize: tournament.tournament_size,
+                  entryFee: tournament.entry_fee,
+                  currency: tournament.currency,
+                  issuer: tournament.issuer,
+                  signingWallet: memoData.player
+                })
               })
-            })
 
-            const joinResult = await joinResponse.json()
-            console.log("✅ Join API response:", joinResult)
-
-            if (joinResult.isFull) {
-              console.log("🎉 Tournament is FULL! Game should be created")
+              const joinResult = await joinResponse.json()
+              console.log("✅ Join API response:", joinResult)
+            } catch (joinError) {
+              console.error("❌ Join API call failed:", joinError)
             }
-          } catch (joinError) {
-            console.error("❌ Join API call failed:", joinError)
-            // Don't throw - player is already added to database
+          } else {
+            console.log(`✅ Player added: ${finalCount}/${tournament.tournament_size}`)
           }
 
         } catch (dbError) {
