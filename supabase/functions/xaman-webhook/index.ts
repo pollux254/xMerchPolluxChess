@@ -277,6 +277,11 @@ serve(async (req: Request) => {
           if (finalCount >= tournament.tournament_size) {
             console.log("🎉 Tournament is FULL! Calling join API to create game...")
             
+            // CRITICAL FIX: Wait 2 seconds for database transaction to fully commit
+            console.log("⏳ Waiting 2 seconds for database to commit...")
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            console.log("✅ Database commit delay complete, calling join API now...")
+            
             const SITE_URL = Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://xmerch-polluxchess.vercel.app"
             const joinApiUrl = `${SITE_URL}/api/tournaments/join`
             
@@ -296,6 +301,12 @@ serve(async (req: Request) => {
 
               const joinResult = await joinResponse.json()
               console.log("✅ Join API response:", joinResult)
+              
+              if (joinResult.isFull && joinResult.success) {
+                console.log("🎮 Game should be created! Tournament:", memoData.tournament)
+              } else {
+                console.warn("⚠️ Join API returned but game may not be created:", joinResult)
+              }
             } catch (joinError) {
               console.error("❌ Join API call failed:", joinError)
             }
@@ -309,7 +320,7 @@ serve(async (req: Request) => {
       } 
       // Handle regular donation
       else if (isRegularDonation) {
-        console.log("� Processing regular donation")
+        console.log("💝 Processing regular donation")
         try {
           const { error: insertError } = await supabase.from("donations").insert({
             network: "xahau",
