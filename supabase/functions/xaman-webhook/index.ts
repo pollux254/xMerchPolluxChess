@@ -271,8 +271,9 @@ serve(async (req: Request) => {
 
           console.log("✅ Transaction logged")
 
-          // CRITICAL FIX: Call join API to handle game creation
-          const joinApiUrl = `${SUPABASE_URL.replace('/rest/v1', '')}/api/tournaments/join`
+          // CRITICAL FIX: Call join API at the VERCEL deployment URL
+          const SITE_URL = Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://xmerch-polluxchess.vercel.app"
+          const joinApiUrl = `${SITE_URL}/api/tournaments/join`
           console.log("🔗 Calling join API:", joinApiUrl)
           
           try {
