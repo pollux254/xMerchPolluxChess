@@ -77,6 +77,17 @@ export default function Chess() {
     }
   }, [])
 
+  // Fix 2: Auto-polling to check if player joined from another tab/device
+  useEffect(() => {
+    if (!playerID) return
+    
+    const interval = setInterval(() => {
+      checkExistingTournament(playerID)
+    }, 3000)
+    
+    return () => clearInterval(interval)
+  }, [playerID])
+
   async function cleanupPlayerTournaments(playerAddress: string) {
     try {
       console.log("🧹 Cleaning up any stuck tournament entries...")
@@ -471,6 +482,48 @@ export default function Chess() {
       return
     }
 
+    // Fix 1: CRITICAL - Check if player is already in this tournament BEFORE payment
+    try {
+      const tournamentId = `${selectedAsset.currency}_${selectedSize}_${selectedFee}_${network.toUpperCase()}_ROOM1`
+      
+      console.log("🔍 Checking if player already in tournament...")
+      
+      // Check if already in this specific tournament
+      const { data: alreadyInTournament } = await supabase
+        .from('tournament_players')
+        .select('tournament_id, status')
+        .eq('player_address', playerID)
+        .eq('tournament_id', tournamentId)
+        .maybeSingle()
+      
+      if (alreadyInTournament) {
+        console.log("❌ Player already in this tournament")
+        alert("You're already in this tournament!\n\nRedirecting to waiting room...")
+        window.location.href = `/waiting-room?tournamentId=${tournamentId}`
+        return
+      }
+      
+      // Check if in ANY active tournament
+      const { data: inAnyTournament } = await supabase
+        .from('tournament_players')
+        .select('tournament_id, tournaments!inner(status)')
+        .eq('player_address', playerID)
+        .in('tournaments.status', ['waiting', 'in_progress'])
+      
+      if (inAnyTournament && inAnyTournament.length > 0) {
+        const existingTournamentId = inAnyTournament[0].tournament_id
+        console.log("❌ Player already in another tournament:", existingTournamentId)
+        alert("You're already in another tournament!\n\nRedirecting...")
+        window.location.href = `/waiting-room?tournamentId=${existingTournamentId}`
+        return
+      }
+      
+      console.log("✅ Player not in any tournament - proceeding with payment")
+    } catch (err) {
+      console.error("⚠️ Error checking tournament status:", err)
+      // Continue anyway - backend will catch duplicates
+    }
+
     try {
       setLoadingPay(true)
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
@@ -545,36 +598,18 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // IMPROVED MOBILE DETECTION
-      const isMobileDevice = () => {
-        // Check 1: User agent
-        const userAgent = navigator.userAgent.toLowerCase()
-        const mobileKeywords = ['android', 'webos', 'iphone', 'ipad', 'ipod', 'blackberry', 'windows phone']
-        const hasMobileKeyword = mobileKeywords.some(keyword => userAgent.includes(keyword))
-        
-        // Check 2: Touch support
-        const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-        
-        // Check 3: Screen size
-        const isSmallScreen = window.innerWidth <= 768
-        
-        // Check 4: Standalone mode (PWA)
-        const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-        
-        console.log('📱 Mobile Detection:', {
-          userAgent: hasMobileKeyword,
-          touch: hasTouch,
-          smallScreen: isSmallScreen,
-          standalone: isStandalone,
-          width: window.innerWidth
-        })
-        
-        // Consider it mobile if ANY of these are true
-        return hasMobileKeyword || (hasTouch && isSmallScreen) || isStandalone
-      }
-      
-      const isMobile = isMobileDevice()
-      console.log("📱 Final decision - Device type:", isMobile ? "MOBILE - Direct redirect" : "DESKTOP - Popup")
+      // SIMPLIFIED & MORE AGGRESSIVE MOBILE DETECTION
+      const userAgent = navigator.userAgent.toLowerCase()
+      const isMobile = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent) || 
+                       window.innerWidth <= 768 ||
+                       navigator.maxTouchPoints > 0
+
+      console.log("📱 Device Detection:", {
+        userAgent: userAgent.substring(0, 50) + "...",
+        width: window.innerWidth,
+        touch: navigator.maxTouchPoints,
+        isMobile: isMobile ? "YES - Direct redirect" : "NO - Popup"
+      })
       
       let xamanPopup: Window | null = null
       

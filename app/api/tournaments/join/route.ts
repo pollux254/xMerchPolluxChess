@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
       tournamentId = newT.id
     }
 
-    // Double-check player isn't already in this specific tournament
+    // Fix 3: Double-check player isn't already in this specific tournament
     const { data: alreadyIn } = await supabase
       .from('tournament_players')
       .select('id')
@@ -129,9 +129,14 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (alreadyIn) {
+      console.log(`[Tournament Join] Player ${playerAddress} already in tournament ${tournamentId}`)
       return NextResponse.json({
         success: true,
         tournamentId,
+        playerCount: tournamentSize, // Return full count so they know
+        tournamentSize,
+        isFull: true,
+        alreadyJoined: true,
         message: 'Already joined',
       })
     }

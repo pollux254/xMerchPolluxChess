@@ -209,6 +209,30 @@ serve(async (req: Request) => {
 
           console.log("✅ Tournament found:", tournament.id)
 
+          // Fix 4: Check if player already in tournament BEFORE inserting
+          const { data: existingPlayer } = await supabase
+            .from('tournament_players')
+            .select('id')
+            .eq('tournament_id', memoData.tournament)
+            .eq('player_address', memoData.player)
+            .maybeSingle()
+
+          if (existingPlayer) {
+            console.log(`✅ Player ${memoData.player} already in tournament ${memoData.tournament}`)
+            return new Response(
+              JSON.stringify({ 
+                ok: true, 
+                verified: true,
+                message: 'Player already joined',
+                alreadyJoined: true
+              }),
+              { 
+                status: 200,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+              }
+            )
+          }
+
           // Add player to tournament
           // Get current player count for order
           const { count: currentCount } = await supabase
