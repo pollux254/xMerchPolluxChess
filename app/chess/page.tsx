@@ -674,15 +674,14 @@ export default function Chess() {
           clearTimeout(timeoutId)
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
           
-          console.log("✅ Payment signed! Waiting for webhook...")
+          console.log("✅ Payment signed! Redirecting to waiting room...")
           
-          alert("✅ Payment submitted!\n\nRedirecting to waiting room...")
-
-          await new Promise(resolve => setTimeout(resolve, 2000))
+          // Show brief loading indicator instead of alert
+          setLoadingPay(true)
+          await new Promise(resolve => setTimeout(resolve, 1000))
           window.location.href = `/waiting-room?tournamentId=${tournamentId}`
           
           ws.close()
-          setLoadingPay(false)
         } else if (status.signed === false) {
           clearTimeout(timeoutId)
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
