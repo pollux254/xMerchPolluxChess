@@ -598,34 +598,32 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // SIMPLIFIED & MORE AGGRESSIVE MOBILE DETECTION
+      // CRITICAL: Detect REAL mobile devices only (not just small screens)
       const userAgent = navigator.userAgent.toLowerCase()
-      const isMobile = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent) || 
-                       window.innerWidth <= 768 ||
-                       navigator.maxTouchPoints > 0
+      const isActualMobile = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent)
 
       console.log("📱 Device Detection:", {
         userAgent: userAgent.substring(0, 50) + "...",
         width: window.innerWidth,
         touch: navigator.maxTouchPoints,
-        isMobile: isMobile ? "YES - Direct redirect" : "NO - Popup"
+        isActualMobile: isActualMobile ? "YES - Direct to app" : "NO - Web popup"
       })
       
       let xamanPopup: Window | null = null
       
-      if (isMobile) {
-        // CRITICAL FIX: Use deep link for mobile, not web URL
+      if (isActualMobile) {
+        // MOBILE ONLY: Use deep link to open Xaman app
         const deepLink = `xumm://xumm.app/sign/${uuid}`
-        console.log("📱 Using Xaman deep link:", deepLink)
-        console.log("📱 Executing mobile redirect to Xaman app...")
+        console.log("📱 Mobile device - Using deep link:", deepLink)
         
-        // For mobile: use deep link to open app directly via notification
+        // For mobile: use deep link to open app directly
         window.location.href = deepLink
         
         // Don't set timeout or popup for mobile
         // The WebSocket will still track the payment status
       } else {
-        console.log("💻 Opening desktop popup...")
+        // DESKTOP/LAPTOP/TABLET: Use web URL in popup
+        console.log("💻 Desktop device - Opening web popup...")
         
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
