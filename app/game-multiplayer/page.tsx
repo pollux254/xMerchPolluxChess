@@ -136,13 +136,16 @@ function GameMultiplayerContent() {
         query = query.eq('tournament_id', tournamentId)
       }
       
-      const { data, error } = await query.single()
+      const { data, error } = await query.maybeSingle()
 
       if (error) {
         console.error("Database error:", error)
-        throw new Error(`Game not found: ${error.message}`)
+        throw new Error(`Game query error: ${error.message}`)
       }
-      if (!data) throw new Error("Game not found")
+      if (!data) {
+        console.error("No game found for tournament:", tournamentId)
+        throw new Error("Game not found - it may still be loading")
+      }
 
       console.log("🎮 Game loaded:", data)
 
@@ -249,7 +252,7 @@ function GameMultiplayerContent() {
         .from('tournament_games')
         .select('first_move_made, status')
         .eq('id', gameData.id || tournamentId)
-        .single()
+        .maybeSingle()
       
       if (currentGame && !currentGame.first_move_made && currentGame.status === 'in_progress') {
         handleFirstMoveTimeout()
@@ -299,7 +302,7 @@ function GameMultiplayerContent() {
         .from('tournament_games')
         .select('white_time_remaining, black_time_remaining, turn_started_at')
         .eq('id', gameId)
-        .single()
+        .maybeSingle()
         .then(({ data, error }) => {
           if (error || !data) return
 

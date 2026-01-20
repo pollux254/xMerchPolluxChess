@@ -219,15 +219,17 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', tournamentId)
       
-      // Get both players
+      // Get both players with their IDs
       const { data: players } = await supabase
         .from('tournament_players')
-        .select('player_address, player_order')
+        .select('id, player_address, player_order')
         .eq('tournament_id', tournamentId)
         .order('player_order')
       
       if (players && players.length === tournamentSize) {
         console.log(`[Tournament] Creating game for ${tournamentSize} players`)
+        console.log(`[Tournament] Player 1 (White):`, players[0].player_address)
+        console.log(`[Tournament] Player 2 (Black):`, players[1].player_address)
         
         // CRITICAL: Check if game already exists (prevent duplicates)
         const { data: existingGame } = await supabase
@@ -237,34 +239,46 @@ export async function POST(request: NextRequest) {
           .maybeSingle()
         
         if (!existingGame) {
-          // Create game record
-          const { error: gameError } = await supabase
+          console.log(`[Tournament] No existing game, creating new one...`)
+          
+          // CRITICAL FIX: game_state must be JSON object, not string
+          // player_white/player_black are player addresses
+          const { data: newGame, error: gameError } = await supabase
             .from('tournament_games')
             .insert({
               tournament_id: tournamentId,
               player_white: players[0].player_address,
               player_black: players[1].player_address,
-              current_turn: 'white',
+              status: 'in_progress',
+              game_state: {
+                fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+                moves: [],
+                turn: 'white'
+              },
               white_time_remaining: 1200,
               black_time_remaining: 1200,
               turn_started_at: new Date().toISOString(),
               last_move_at: new Date().toISOString(),
               first_move_made: false,
-              started_at: new Date().toISOString(),
-              status: 'active',
-              game_state: '{"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}',
+              started_at: new Date().toISOString()
             })
+            .select()
+            .single()
           
           if (gameError) {
-            console.error(`[Tournament] Failed to create game:`, gameError)
+            console.error(`[Tournament] ❌ Failed to create game:`, gameError)
+            console.error(`[Tournament] Error details:`, JSON.stringify(gameError, null, 2))
           } else {
-            console.log(`[Tournament] Game created successfully for ${tournamentId}`)
+            console.log(`[Tournament] ✅ Game created successfully!`)
+            console.log(`[Tournament] Game ID:`, newGame.id)
+            console.log(`[Tournament] Tournament ID:`, newGame.tournament_id)
           }
         } else {
-          console.log(`[Tournament] Game already exists for ${tournamentId}, skipping creation`)
+          console.log(`[Tournament] ⚠️ Game already exists for ${tournamentId}, ID: ${existingGame.id}`)
         }
       } else {
-        console.error(`[Tournament] Expected ${tournamentSize} players but found ${players?.length}`)
+        console.error(`[Tournament] ❌ Expected ${tournamentSize} players but found ${players?.length}`)
+        console.error(`[Tournament] Players data:`, players)
       }
     }
 
