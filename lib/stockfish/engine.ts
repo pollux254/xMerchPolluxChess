@@ -124,8 +124,9 @@ export class StockfishEngine {
     }
 
     // Calculate mistake probability based on ranking (1-1000)
-    // Formula: mistake_rate = 50% - (ranking / 20)
-    const mistakeRate = Math.max(0, Math.min(50, 50 - (ranking / 20)));
+    // Formula: mistake_rate = 90% - (ranking / 10)
+    // Rank 1: ~90%, Rank 100: 80%, Rank 300: 60%, Rank 500: 40%, Rank 1000: 10%
+    const mistakeRate = Math.max(10, Math.min(90, 90 - (ranking / 10)));
     const shouldMakeMistake = Math.random() * 100 < mistakeRate;
 
     console.log(`🎲 [Bot AI] Rank ${ranking}, Mistake Rate: ${mistakeRate.toFixed(1)}%, Will mistake: ${shouldMakeMistake}`)
@@ -152,15 +153,21 @@ export class StockfishEngine {
         const infoLines = this.messageQueue.filter((m) => m.startsWith("info") && m.includes(" pv "));
         
         for (const line of infoLines) {
-          const pvMatch = line.match(/pv\s+(\w+)/);
+          // Match move in UCI format: e2e4, e7e8q, etc. (4-5 characters)
+          const pvMatch = line.match(/pv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
           const scoreMatch = line.match(/score\s+cp\s+(-?\d+)/);
           
           if (pvMatch && scoreMatch) {
             const move = pvMatch[1];
             const score = parseInt(scoreMatch[1]);
             
-            if (!moves.find(m => m.move === move)) {
-              moves.push({ move, score });
+            // Validate move format before adding
+            if (move && move.length >= 4 && move.length <= 5) {
+              if (!moves.find(m => m.move === move)) {
+                moves.push({ move, score });
+              }
+            } else {
+              console.warn(`⚠️ [Bot AI] Skipping invalid move from PV: "${move}"`);
             }
           }
         }
@@ -202,17 +209,28 @@ export class StockfishEngine {
             console.log(`🎲 [Bot AI] Rank ${ranking} (Strong): Move #${pickIndex + 1}`);
           }
           
-          return selectedMove;
+          // Validate selected move before returning
+          if (!selectedMove || selectedMove.length < 4 || selectedMove.length > 5) {
+            console.error(`❌ [Bot AI] Invalid move selected from MultiPV: "${selectedMove}"`);
+            console.error(`❌ [Bot AI] Available moves:`, moves);
+            // Fall through to standard search instead
+            this.messageQueue = [];
+            this.send(`setoption name MultiPV value 1`);
+          } else {
+            return selectedMove;
+          }
         }
         
         await sleep(100);
       }
       
-      // Timeout fallback - reset MultiPV and return best move
+      // Timeout fallback - clear queue and fall through to standard search
+      console.log(`⚠️ [Bot AI] Mistake search timed out, falling back to best move`);
+      this.messageQueue = [];
       this.send(`setoption name MultiPV value 1`);
     }
 
-    // Play best move (no mistake or high ranking)
+    // Play best move (no mistake, high ranking, or fallback from timeout)
     this.send(`setoption name MultiPV value 1`);
     this.send(`position fen ${fen}`);
     this.send(`go depth ${params.depth}`);
@@ -222,12 +240,31 @@ export class StockfishEngine {
     while (Date.now() < deadline) {
       const bestMoveMsg = this.messageQueue.find((m) => m.startsWith("bestmove"));
       if (bestMoveMsg) {
-        const move = bestMoveMsg.split(" ")[1];
+        console.log(`📨 [Bot AI] Raw bestmove message: "${bestMoveMsg}"`);
+        console.log(`📨 [Bot AI] Full message queue:`, this.messageQueue);
+        
+        // Parse: "bestmove e2e4" or "bestmove e2e4 ponder e7e5"
+        const parts = bestMoveMsg.split(" ");
+        console.log(`📨 [Bot AI] Split parts:`, parts);
+        
+        const move = parts[1];
+        
+        // Validate move format (should be like "e2e4" or "e7e8q")
+        if (!move || move.length < 4 || move.length > 5) {
+          console.error(`❌ [Bot AI] Invalid move from engine: "${move}"`);
+          console.error(`❌ [Bot AI] Full message: "${bestMoveMsg}"`);
+          console.error(`❌ [Bot AI] All parts:`, parts);
+          console.error(`❌ [Bot AI] Queue:`, this.messageQueue);
+          throw new Error(`Invalid UCI move from engine: "${move}" (from message: "${bestMoveMsg}")`);
+        }
+        
         console.log(`✅ [Bot AI] Playing best move: ${move}`);
-        return move || "e2e4";
+        return move;
       }
       await sleep(100);
     }
+    
+    console.error(`❌ [Bot AI] Move calculation timeout. Queue:`, this.messageQueue);
     throw new Error("Move calculation timeout");
   }
 

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { useEffect, useState, useRef } from "react"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
+import { Moon, Sun, Monitor } from "lucide-react"
 import { BOT_PROFILE_BY_ID, getBotDifficultyByRank, generateBotRankForDifficulty } from "@/lib/bots/bot-profiles"
 import { BOT_PROFILES } from "@/lib/bots/bot-profiles"
 import { getBotThinkingTimeSeconds } from "@/lib/bots/thinking-time"
@@ -13,6 +14,8 @@ import { getSupabaseClient } from "@/lib/supabase-client"
 import { getPlayerSettings, updateBotStats, getPlayerStats, type PlayerSettings } from "@/lib/player-profile"
 import ProfileModal from "@/app/components/ProfileModal"
 import GameResultModal from "@/app/components/GameResultModal"
+
+type Theme = "light" | "middle" | "dark"
 
 function GameContent() {
   const searchParams = useSearchParams()
@@ -56,7 +59,7 @@ function GameContent() {
 
   // Database persistence state
   const [gameId, setGameId] = useState<string | null>(null)
-  const [lastMoveTimestamp, setLastMoveTimestamp] = useState<number>(Date.now())
+  const [turnStartedAt, setTurnStartedAt] = useState<number>(Date.now())
   const [gameLoaded, setGameLoaded] = useState(false)
   const [firstMoveMade, setFirstMoveMade] = useState(false)
   const [gameStartedAt, setGameStartedAt] = useState<Date | null>(null)
@@ -81,10 +84,34 @@ function GameContent() {
   const [settings, setSettings] = useState<PlayerSettings | null>(null)
   const [pendingMove, setPendingMove] = useState<{from: string, to: string} | null>(null)
   
-  // Move history navigation
-  const [moveHistory, setMoveHistory] = useState<string[]>([])
+  // Move history navigation - store FEN positions
+  const [fenHistory, setFenHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1) // -1 means at current position
   const [viewingHistory, setViewingHistory] = useState(false)
+  
+  // Click-to-move state
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+  const [legalMoves, setLegalMoves] = useState<string[]>([])
+  
+  // Theme state
+  const [theme, setTheme] = useState<Theme>("light")
+
+  // Load theme from localStorage on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") as Theme
+    if (savedTheme) {
+      setTheme(savedTheme)
+      document.documentElement.classList.remove("light", "middle", "dark")
+      document.documentElement.classList.add(savedTheme)
+    }
+  }, [])
+
+  const setThemeValue = (newTheme: Theme) => {
+    setTheme(newTheme)
+    document.documentElement.classList.remove("light", "middle", "dark")
+    document.documentElement.classList.add(newTheme)
+    localStorage.setItem("theme", newTheme)
+  }
 
   useEffect(() => {
     if (mode !== "bot_matchmaking") return
@@ -233,9 +260,11 @@ function GameContent() {
     if (!engineReady) return
     if (playerID === "Guest") return
     if (matchmaking) return // Wait for matchmaking to finish
-    if (!bot && mode === "bot_matchmaking") return // Wait for bot to be selected
+    // Only wait for bot if we're actively matchmaking, not if restoring
+    if (mode === "bot_matchmaking" && !bot) return // Wait for bot to be selected
 
     gameLoadedRef.current = true
+
 
     const loadOrCreateGame = async () => {
       try {
@@ -272,41 +301,29 @@ function GameContent() {
           const playerIsWhite = existingGame.player_white === playerID
           setIsPlayerWhite(playerIsWhite)
 
-          // BUG FIX 5: Calculate elapsed time since last move
+          // WALL CLOCK: Calculate from turn_started_at (anti-cheat)
           const now = Date.now()
-          const lastMoveTime = new Date(existingGame.last_move_at).getTime()
-          const elapsedSeconds = Math.floor((now - lastMoveTime) / 1000)
+          const turnStartTime = new Date(existingGame.turn_started_at || existingGame.last_move_at).getTime()
+          const elapsedSeconds = Math.floor((now - turnStartTime) / 1000)
 
-          console.log("⏰ [Timer] Current time:", now)
-          console.log("⏰ [Timer] Last move time:", lastMoveTime)
-          console.log("⏰ [Timer] Elapsed seconds:", elapsedSeconds)
-          console.log("⏰ [Timer] Stored white time:", existingGame.white_time_remaining)
-          console.log("⏰ [Timer] Stored black time:", existingGame.black_time_remaining)
-          console.log("⏰ [Timer] Current turn:", existingGame.current_turn)
+          console.log("⏰ [WALL CLOCK] Current time:", new Date(now).toLocaleTimeString())
+          console.log("⏰ [WALL CLOCK] Turn started at:", new Date(turnStartTime).toLocaleTimeString())
+          console.log("⏰ [WALL CLOCK] Elapsed THIS TURN:", elapsedSeconds, "seconds")
+          console.log("⏰ [WALL CLOCK] Stored white time:", existingGame.white_time_remaining)
+          console.log("⏰ [WALL CLOCK] Stored black time:", existingGame.black_time_remaining)
+          console.log("⏰ [WALL CLOCK] Current turn:", existingGame.current_turn)
 
-          // Calculate remaining times - subtract elapsed ONLY from current player
-          // CRITICAL FIX: Only deduct if elapsed time is positive (prevent negative time bugs)
+          // Calculate remaining times based on stored time - elapsed
           let whiteTimeRemaining = existingGame.white_time_remaining
           let blackTimeRemaining = existingGame.black_time_remaining
 
-          if (elapsedSeconds > 0) {
-            if (existingGame.current_turn === 'white') {
-              whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - elapsedSeconds)
-              console.log("⏰ [Timer] White's turn - deducting from white:", whiteTimeRemaining)
-            } else {
-              blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - elapsedSeconds)
-              console.log("⏰ [Timer] Black's turn - deducting from black:", blackTimeRemaining)
-            }
+          if (existingGame.current_turn === 'white') {
+            whiteTimeRemaining = Math.max(0, existingGame.white_time_remaining - elapsedSeconds)
+            console.log("⏰ [WALL CLOCK] White's turn - time left:", whiteTimeRemaining)
           } else {
-            console.log("⏰ [Timer] Negative/zero elapsed time detected - using stored times as-is")
+            blackTimeRemaining = Math.max(0, existingGame.black_time_remaining - elapsedSeconds)
+            console.log("⏰ [WALL CLOCK] Black's turn - time left:", blackTimeRemaining)
           }
-
-          // Cap at maximum 1200 seconds (20 minutes)
-          whiteTimeRemaining = Math.min(1200, Math.max(0, whiteTimeRemaining))
-          blackTimeRemaining = Math.min(1200, Math.max(0, blackTimeRemaining))
-
-          console.log("⏰ [Timer] Final white time:", whiteTimeRemaining, "seconds")
-          console.log("⏰ [Timer] Final black time:", blackTimeRemaining, "seconds")
 
           if (playerIsWhite) {
             setPlayerTime(whiteTimeRemaining)
@@ -316,7 +333,9 @@ function GameContent() {
             setBotTime(whiteTimeRemaining)
           }
 
-          setLastMoveTimestamp(lastMoveTime)
+          // Store the turn start time (NEVER update this during countdown)
+          setTurnStartedAt(turnStartTime)
+          console.log("⏰ [WALL CLOCK] Locked turn_started_at - timer will calculate from this")
 
           // Set active player based on current turn
           const currentTurn = restoredGame.turn()
@@ -380,7 +399,7 @@ function GameContent() {
           setGameId(newGame.id)
           setFirstMoveMade(false)
           setGameStartedAt(new Date(newGame.started_at))
-          setLastMoveTimestamp(Date.now())
+          setTurnStartedAt(Date.now())
           setGameLoaded(true)
 
           // Set initial times
@@ -429,8 +448,9 @@ function GameContent() {
     }
   }, [isPlayerWhite, game, engineReady])
 
+  // WALL CLOCK TIMER: Recalculate from turn_started_at every second (ANTI-CHEAT)
   useEffect(() => {
-    if (!activePlayer || game.isGameOver() || playerTime === 0 || botTime === 0) {
+    if (!activePlayer || game.isGameOver()) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
@@ -438,23 +458,63 @@ function GameContent() {
       return
     }
 
+    if (!gameId) return
+
     intervalRef.current = setInterval(() => {
+      const now = Date.now()
+      const elapsedMs = now - turnStartedAt
+      const elapsedSeconds = Math.floor(elapsedMs / 1000)
+
       if (activePlayer === "player") {
-        setPlayerTime((prev) => {
-          if (prev <= 1) {
-            setStatus("Time forfeit! Bot wins ⏰")
-            return 0
-          }
-          return prev - 1
-        })
+        // Fetch STORED time from database, subtract elapsed
+        supabase
+          .from('tournament_games')
+          .select('white_time_remaining, black_time_remaining, current_turn')
+          .eq('id', gameId)
+          .single()
+          .then(({ data, error }) => {
+            if (error || !data) return
+
+            const storedPlayerTime = isPlayerWhite ? data.white_time_remaining : data.black_time_remaining
+            const calculatedTime = Math.max(0, storedPlayerTime - elapsedSeconds)
+
+            setPlayerTime(calculatedTime)
+
+            if (calculatedTime <= 0) {
+              setStatus("Time forfeit! Bot wins ⏰")
+              supabase.from('tournament_games').update({
+                status: 'completed',
+                winner: 'bot',
+                result_reason: 'timeout',
+                completed_at: new Date().toISOString()
+              }).eq('id', gameId)
+            }
+          })
       } else {
-        setBotTime((prev) => {
-          if (prev <= 1) {
-            setStatus("Bot ran out of time! You win ⏰")
-            return 0
-          }
-          return prev - 1
-        })
+        // Same for bot
+        supabase
+          .from('tournament_games')
+          .select('white_time_remaining, black_time_remaining, current_turn')
+          .eq('id', gameId)
+          .single()
+          .then(({ data, error }) => {
+            if (error || !data) return
+
+            const storedBotTime = isPlayerWhite ? data.black_time_remaining : data.white_time_remaining
+            const calculatedTime = Math.max(0, storedBotTime - elapsedSeconds)
+
+            setBotTime(calculatedTime)
+
+            if (calculatedTime <= 0) {
+              setStatus("Bot ran out of time! You win ⏰")
+              supabase.from('tournament_games').update({
+                status: 'completed',
+                winner: isPlayerWhite ? 'white' : 'black',
+                result_reason: 'timeout',
+                completed_at: new Date().toISOString()
+              }).eq('id', gameId)
+            }
+          })
       }
     }, 1000)
 
@@ -464,7 +524,7 @@ function GameContent() {
         intervalRef.current = null
       }
     }
-  }, [activePlayer, game, playerTime, botTime])
+  }, [activePlayer, game, turnStartedAt, gameId, isPlayerWhite])
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -472,41 +532,43 @@ function GameContent() {
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  // Move navigation handlers
+  // Move navigation handlers - Simple FEN-based navigation
   const handlePreviousMove = () => {
-    const history = game.history()
-    if (history.length === 0) return
+    console.log(`📜 [History] Total positions: ${fenHistory.length}, Current index: ${historyIndex}`)
+    if (fenHistory.length === 0) return
     
-    const newIndex = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1)
+    let newIndex: number
+    if (historyIndex === -1) {
+      // Coming from current position, go to last saved position
+      newIndex = fenHistory.length - 1
+    } else if (historyIndex > 0) {
+      // Go back one position
+      newIndex = historyIndex - 1
+    } else {
+      // Already at first position
+      console.log(`📜 [History] Already at starting position`)
+      return
+    }
+    
+    console.log(`📜 [History] Going to position ${newIndex + 1}/${fenHistory.length}`)
     setHistoryIndex(newIndex)
     setViewingHistory(true)
-    
-    // Create a new game and replay moves up to this index
-    const tempGame = new Chess()
-    for (let i = 0; i <= newIndex; i++) {
-      tempGame.move(history[i])
-    }
-    setVisualFen(tempGame.fen())
+    setVisualFen(fenHistory[newIndex])
   }
 
   const handleNextMove = () => {
-    const history = game.history()
     if (historyIndex === -1) return // Already at current position
     
     const newIndex = historyIndex + 1
     
-    if (newIndex >= history.length) {
+    if (newIndex >= fenHistory.length) {
       // Return to current position
       setHistoryIndex(-1)
       setViewingHistory(false)
       setVisualFen(fen)
     } else {
       setHistoryIndex(newIndex)
-      const tempGame = new Chess()
-      for (let i = 0; i <= newIndex; i++) {
-        tempGame.move(history[i])
-      }
-      setVisualFen(tempGame.fen())
+      setVisualFen(fenHistory[newIndex])
     }
   }
 
@@ -550,18 +612,19 @@ function GameContent() {
       
       if (move) {
         const now = Date.now()
-        const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
+        const elapsedSeconds = Math.floor((now - turnStartedAt) / 1000)
         const updatedPlayerTime = Math.max(0, playerTime - elapsedSeconds)
         const newWhiteTime = isPlayerWhite ? updatedPlayerTime : botTime
         const newBlackTime = isPlayerWhite ? botTime : updatedPlayerTime
 
-        // Update database
+        // Update database with turn_started_at
         if (gameId) {
           supabase
             .from('tournament_games')
             .update({
               game_state: gameCopy.fen(),
-              last_move_at: new Date().toISOString(),
+              last_move_at: new Date(now).toISOString(),
+              turn_started_at: new Date(now).toISOString(),
               current_turn: gameCopy.turn() === 'w' ? 'white' : 'black',
               first_move_made: true,
               white_time_remaining: newWhiteTime,
@@ -570,12 +633,11 @@ function GameContent() {
             .eq('id', gameId)
         }
 
-        // Update local state - sync both FEN states
+        // Update local state
         setGame(gameCopy)
         setFen(gameCopy.fen())
-        setVisualFen(gameCopy.fen()) // Sync visual with actual
-        setPlayerTime(updatedPlayerTime)
-        setLastMoveTimestamp(now)
+        setVisualFen(gameCopy.fen())
+        setTurnStartedAt(now)
         setFirstMoveMade(true)
         setActivePlayer("bot")
         setStatus("Bot's turn ♘")
@@ -641,6 +703,12 @@ function GameContent() {
   const onPieceDrop = ({ sourceSquare, targetSquare }: any): boolean => {
     if (isPlayerWhite === null || !targetSquare) return false
     if (!gameId) return false
+    
+    // Prevent moves while viewing history - return current first
+    if (viewingHistory) {
+      handleReturnToCurrent()
+      return false // Don't process the move yet
+    }
 
     const playerColor = isPlayerWhite ? "w" : "b"
     if (game.turn() !== playerColor) return false
@@ -664,23 +732,26 @@ function GameContent() {
         return true // Move is valid but pending confirmation
       }
 
-      // If confirm_moves is false, execute immediately
+      // WALL CLOCK: Calculate elapsed time and save to database
       const now = Date.now()
-      const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
+      const elapsedMs = now - turnStartedAt
+      const elapsedSeconds = Math.floor(elapsedMs / 1000)
       
-      // Update times
+      // Deduct elapsed time from player's stored time
       const updatedPlayerTime = Math.max(0, playerTime - elapsedSeconds)
       const newWhiteTime = isPlayerWhite ? updatedPlayerTime : botTime
       const newBlackTime = isPlayerWhite ? botTime : updatedPlayerTime
 
-      console.log("🎮 [BotGame] Player move:", move.san, "Elapsed:", elapsedSeconds, "s")
+      console.log("🎮 [Move] Player move:", move.san)
+      console.log("⏰ [Move] Elapsed:", elapsedSeconds, "s, New time:", updatedPlayerTime, "s")
 
-      // Update database asynchronously (fire-and-forget)
+      // Save to database: store final time + NEW turn_started_at for bot
       supabase
         .from('tournament_games')
         .update({
           game_state: gameCopy.fen(),
-          last_move_at: new Date().toISOString(),
+          last_move_at: new Date(now).toISOString(),
+          turn_started_at: new Date(now).toISOString(), // Bot's turn starts NOW
           current_turn: gameCopy.turn() === 'w' ? 'white' : 'black',
           first_move_made: true,
           white_time_remaining: newWhiteTime,
@@ -691,18 +762,26 @@ function GameContent() {
           if (error) {
             console.error("🎮 [BotGame] Failed to update game:", error)
           } else {
-            console.log("🎮 [BotGame] Player move saved to database")
+            console.log("🎮 [BotGame] ✅ Saved: turn_started_at =", new Date(now).toLocaleTimeString())
           }
         })
 
       // Update local state
       setGame(gameCopy)
       setFen(gameCopy.fen())
-      setPlayerTime(updatedPlayerTime)
-      setLastMoveTimestamp(now)
+      setVisualFen(gameCopy.fen())
+      setTurnStartedAt(now) // Bot's turn timer starts NOW
       setFirstMoveMade(true)
       setActivePlayer("bot")
       setStatus("Bot's turn ♘")
+      
+      // Save FEN position to history for navigation
+      setFenHistory(prev => [...prev, gameCopy.fen()])
+      console.log(`📜 [History] Saved position. Total: ${fenHistory.length + 1}`)
+      
+      // Reset history navigation to current position
+      setHistoryIndex(-1)
+      setViewingHistory(false)
 
       return true
     } catch (error) {
@@ -759,33 +838,43 @@ function GameContent() {
         // Pass ranking to engine for mistake injection (1-1000 range)
         const best = await engine.getBestMoveUci(game.fen(), params, 10000, targetRank)
         
-        console.log(`✅ Bot move: ${best}`)
+        console.log(`✅ Bot received move UCI: "${best}" (length: ${best.length})`)
+        
+        // Validate UCI format before parsing
+        if (!best || best.length < 4) {
+          throw new Error(`Invalid UCI notation from engine: "${best}"`)
+        }
         
         const from = best.slice(0, 2)
         const to = best.slice(2, 4)
         const promotion = best.length > 4 ? best[4] : undefined
 
+        console.log(`🎯 Parsed move: from="${from}", to="${to}", promotion="${promotion}"`)
+
         const gameCopy = new Chess(game.fen())
         const move = gameCopy.move({ from, to, promotion: promotion ?? "q" })
 
-        if (!move) throw new Error(`Illegal move: ${best}`)
+        if (!move) throw new Error(`Illegal move: ${best} (from: ${from}, to: ${to})`)
 
-        // Calculate elapsed time and update times
+        // WALL CLOCK: Calculate bot's elapsed time
         const now = Date.now()
-        const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000)
+        const elapsedMs = now - turnStartedAt
+        const elapsedSeconds = Math.floor(elapsedMs / 1000)
         const updatedBotTime = Math.max(0, botTime - elapsedSeconds)
         const newWhiteTime = isPlayerWhite ? playerTime : updatedBotTime
         const newBlackTime = isPlayerWhite ? updatedBotTime : playerTime
 
-        console.log("🎮 [BotGame] Bot move:", move.san, "Elapsed:", elapsedSeconds, "s")
+        console.log("🎮 [Bot Move]:", move.san)
+        console.log("⏰ [Bot Move] Elapsed:", elapsedSeconds, "s, New time:", updatedBotTime, "s")
 
-        // Update database asynchronously
+        // Save to database: store final time + NEW turn_started_at for player
         if (gameId) {
           supabase
             .from('tournament_games')
             .update({
               game_state: gameCopy.fen(),
-              last_move_at: new Date().toISOString(),
+              last_move_at: new Date(now).toISOString(),
+              turn_started_at: new Date(now).toISOString(), // Player's turn starts NOW
               current_turn: gameCopy.turn() === 'w' ? 'white' : 'black',
               white_time_remaining: newWhiteTime,
               black_time_remaining: newBlackTime
@@ -795,7 +884,7 @@ function GameContent() {
               if (error) {
                 console.error("🎮 [BotGame] Failed to update bot move:", error)
               } else {
-                console.log("🎮 [BotGame] Bot move saved to database")
+                console.log("🎮 [BotGame] ✅ Saved: turn_started_at =", new Date(now).toLocaleTimeString())
               }
             })
         }
@@ -803,10 +892,13 @@ function GameContent() {
         // Update local state
         setGame(gameCopy)
         setFen(gameCopy.fen())
-        setBotTime(updatedBotTime)
-        setLastMoveTimestamp(now)
+        setTurnStartedAt(now) // Player's turn timer starts NOW
         setActivePlayer("player")
         setStatus("Your turn! ♟️")
+        
+        // Save FEN position to history for navigation
+        setFenHistory(prev => [...prev, gameCopy.fen()])
+        console.log(`📜 [History] Saved bot position. Total: ${fenHistory.length + 1}`)
         
       } catch (error) {
         console.error("❌ Bot error:", error)
@@ -905,35 +997,56 @@ function GameContent() {
         console.log(`📊 [Stats] Calling updateBotStats for player: ${playerID}`)
         console.log(`📊 [Stats] Result: ${result}`)
         
-        updateBotStats(playerID, result).then(async (success) => {
+        const statsUpdatePromise = updateBotStats(playerID, result)
+        
+        statsUpdatePromise.then(async (success) => {
+          console.log(`📊 [Stats] Update completed with success=${success}`)
+          
           if (success) {
             console.log(`✅ [Stats] SUCCESS! Stats updated in database`)
             console.log(`✅ [Stats] Result recorded: ${result}`)
-            console.log(`✅ [Stats] Check database player_profiles table for updated values`)
+            
+            // CRITICAL: Wait a moment for database to propagate
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            console.log(`✅ [Stats] Fetching fresh stats from database...`)
+            const newStats = await getPlayerStats(playerID)
+            
+            if (newStats) {
+              console.log(`✅ [Stats] Fresh stats retrieved:`, {
+                wins: newStats.bot_wins,
+                losses: newStats.bot_losses,
+                draws: newStats.bot_draws,
+                elo: newStats.bot_elo
+              })
+              setNewRank(newStats.bot_elo)
+              console.log(`✅ [Stats] Rank changed: ${oldRank} → ${newStats.bot_elo}`)
+            } else {
+              console.error(`❌ [Stats] Failed to fetch updated stats!`)
+              setNewRank(oldRank)
+            }
           } else {
             console.error(`❌ [Stats] FAILED to update stats in database`)
             console.error(`❌ [Stats] Player: ${playerID}, Result: ${result}`)
-            console.error(`❌ [Stats] Check Supabase logs and network tab`)
+            console.error(`❌ [Stats] This is a critical error - stats not recorded!`)
+            setNewRank(oldRank)
           }
 
-          // FIX #4: Show result modal instead of auto-redirect
-          console.log(`🎉 [Result Modal] Fetching new rank and showing result modal...`)
-          const newStats = await getPlayerStats(playerID)
-          if (newStats) {
-            setNewRank(newStats.bot_elo)
-            console.log(`🎉 [Result Modal] New rank: ${newStats.bot_elo} (was ${oldRank})`)
-          } else {
-            setNewRank(oldRank) // Fallback if fetch fails
-          }
-          
+          // Show result modal
           setGameResult(result)
           setShowResultModal(true)
           console.log(`🎉 [Result Modal] Showing ${result} modal`)
         }).catch(async (error) => {
           console.error(`❌ [Stats] Exception during stats update:`, error)
-          // Still show modal even if stats update fails
+          console.error(`❌ [Stats] Stack trace:`, error.stack)
+          
+          // Try to fetch stats anyway
           const newStats = await getPlayerStats(playerID)
-          if (newStats) setNewRank(newStats.bot_elo)
+          if (newStats) {
+            console.log(`⚠️ [Stats] Fetched stats despite error:`, newStats)
+            setNewRank(newStats.bot_elo)
+          }
+          
           setGameResult(result)
           setShowResultModal(true)
         })
@@ -1069,66 +1182,154 @@ function GameContent() {
   const playerClockColor = activePlayer === "player" && playerTime < 30 ? "text-red-500" : "text-white"
   const botClockColor = activePlayer === "bot" && botTime < 30 ? "text-red-500" : "text-white"
 
+  // Click-to-move handler
+  const onSquareClick = ({ square, piece }: { piece: any; square: string }) => {
+    if (viewingHistory || botThinking || !engineReady || !gameId) return
+    if (isPlayerWhite === null) return
+    
+    const playerColor = isPlayerWhite ? "w" : "b"
+    if (game.turn() !== playerColor) return
+
+    // If no piece is selected, select this piece
+    if (!selectedSquare) {
+      const piece = game.get(square as any)
+      if (piece && piece.color === playerColor) {
+        setSelectedSquare(square)
+        // Get legal moves for this piece
+        const moves = game.moves({ square: square as any, verbose: true })
+        setLegalMoves(moves.map(m => m.to))
+        console.log(`🖱️ [Click] Selected ${square}, legal moves:`, moves.map(m => m.to))
+      }
+      return
+    }
+
+    // If clicking the same square, deselect
+    if (square === selectedSquare) {
+      setSelectedSquare(null)
+      setLegalMoves([])
+      console.log(`🖱️ [Click] Deselected ${square}`)
+      return
+    }
+
+    // If clicking another piece of same color, switch selection
+    const clickedPiece = game.get(square as any)
+    if (clickedPiece && clickedPiece.color === playerColor) {
+      setSelectedSquare(square)
+      const moves = game.moves({ square: square as any, verbose: true })
+      setLegalMoves(moves.map(m => m.to))
+      console.log(`🖱️ [Click] Switched selection to ${square}`)
+      return
+    }
+
+    // Try to make the move
+    if (selectedSquare && legalMoves.includes(square)) {
+      console.log(`🖱️ [Click] Attempting move: ${selectedSquare} → ${square}`)
+      const moved = onPieceDrop({ sourceSquare: selectedSquare, targetSquare: square })
+      if (moved) {
+        setSelectedSquare(null)
+        setLegalMoves([])
+      }
+    } else {
+      // Invalid move, deselect
+      setSelectedSquare(null)
+      setLegalMoves([])
+    }
+  }
+
   const chessboardOptions = {
     position: viewingHistory ? visualFen : (pendingMove ? visualFen : fen),
     onPieceDrop: onPieceDrop,
+    onSquareClick: onSquareClick,
     boardOrientation: (isPlayerWhite ? "white" : "black") as "white" | "black",
     customBoardStyle: {
       borderRadius: "12px",
       boxShadow: "0 8px 32px rgba(0, 0, 0, 0.6)",
     },
-    customDarkSquareStyle: { backgroundColor: "#1e3a8a" },
-    customLightSquareStyle: { backgroundColor: "#a5d8ff" },
+    customDarkSquareStyle: { backgroundColor: "#404040" },
+    customLightSquareStyle: { backgroundColor: "#e5e5e5" },
+    customSquareStyles: {
+      ...(selectedSquare && {
+        [selectedSquare]: {
+          backgroundColor: "rgba(255, 255, 0, 0.4)",
+        },
+      }),
+      ...Object.fromEntries(
+        legalMoves.map(square => [
+          square,
+          {
+            background: "radial-gradient(circle, rgba(0,255,0,0.3) 25%, transparent 25%)",
+            borderRadius: "50%",
+          },
+        ])
+      ),
+    },
     boardWidth,
     arePiecesDraggable: !botThinking && engineReady && !viewingHistory,
   }
 
   return (
-    <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-purple-900/30 to-black text-white flex items-center justify-center p-2">
+    <div className="h-[100dvh] bg-gradient-to-b from-background via-muted/20 to-background text-foreground flex items-center justify-center p-2">
+      {/* Theme Switcher */}
+      <div className="fixed top-4 right-4 md:top-6 md:right-6 z-50 flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
+        <button
+          onClick={() => setThemeValue("light")}
+          className={`rounded-full p-2 transition-all ${theme === "light" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="Light theme"
+        >
+          <Sun className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setThemeValue("middle")}
+          className={`rounded-full p-2 transition-all ${theme === "middle" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="System theme"
+        >
+          <Monitor className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => setThemeValue("dark")}
+          className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          aria-label="Dark theme"
+        >
+          <Moon className="h-5 w-5" />
+        </button>
+      </div>
+
       <div className="w-full max-w-5xl h-full max-h-[98vh] flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center justify-between gap-2 mb-2">
-            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 bg-clip-text text-transparent">
-              PolluxChess
+            <h1 className="text-xl md:text-2xl font-black text-foreground">
+              POLLUX'S CHESS
             </h1>
-            <div className="text-right">
-              <p className="text-xs text-gray-400">{isPlayerWhite ? "White ♔" : "Black ♚"}</p>
-            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 items-start flex-shrink-0">
-            <div className="order-2 lg:order-1 bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 border border-purple-500/30">
+            <div className="order-2 lg:order-1 bg-card/60 backdrop-blur-xl rounded-xl p-2 border border-border">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-300">Bot</p>
-                  <p className="text-base font-bold text-cyan-200">
+                  <p className="text-xs text-muted-foreground">Bot</p>
+                  <p className="text-base font-bold text-foreground">
                     {bot ? `${bot.avatar} ${bot.name}` : "♘ Practice Bot"}
                   </p>
                   <p className={`text-2xl font-bold ${botClockColor}`}>{formatTime(botTime)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-300">Entry</p>
-                  <p className="text-sm font-semibold text-emerald-300">
+                  <p className="text-xs text-muted-foreground">Entry</p>
+                  <p className="text-sm font-semibold text-foreground">
                     {fee === "0" ? "FREE" : `${fee} XAH`}
                   </p>
-                  {bot && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      Difficulty {parseInt(botRankParam || '') || bot.rank} • {bot.style}
-                    </p>
-                  )}
                 </div>
               </div>
 
               {thinkingSeconds !== null && (
-                <div className="mt-3 text-xs text-gray-300">
-                  Thinking… {thinkingElapsed}s / {thinkingSeconds}s
+                <div className="mt-3 text-xs text-muted-foreground">
+                  Thinking…
                 </div>
               )}
             </div>
 
             <div className="order-1 lg:order-2 flex flex-col items-center gap-2">
               <div
-                className="bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 shadow-2xl border border-purple-500/40"
+                className="bg-card/60 backdrop-blur-xl rounded-xl p-2 shadow-2xl border border-border"
                 style={{ width: boardWidth + 16 }}
               >
                 <Chessboard options={chessboardOptions} />
@@ -1136,20 +1337,20 @@ function GameContent() {
               
               {/* Move Navigation Buttons */}
               {game.history().length > 0 && (
-                <div className="flex items-center gap-2 bg-gray-800/80 backdrop-blur-xl rounded-xl px-3 py-2 border border-purple-500/30">
+                <div className="flex items-center gap-2 bg-card/80 backdrop-blur-xl rounded-xl px-3 py-2 border border-border">
                   <button
                     onClick={handlePreviousMove}
-                    disabled={game.history().length === 0 || (historyIndex === 0 && viewingHistory)}
-                    className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white text-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 disabled:hover:scale-100"
+                    disabled={game.history().length === 0 || historyIndex === 0}
+                    className="w-10 h-10 bg-primary text-primary-foreground hover:opacity-90 disabled:bg-muted disabled:cursor-not-allowed rounded-lg text-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 disabled:hover:scale-100"
                     title="Previous move"
                   >
                     ◀
                   </button>
                   
-                  <div className="text-xs text-gray-300 min-w-[80px] text-center">
+                  <div className="text-xs text-muted-foreground min-w-[80px] text-center">
                     {viewingHistory ? (
                       <>
-                        <span className="text-yellow-400">Viewing</span>
+                        <span className="text-foreground font-semibold">Viewing</span>
                         <br />
                         Move {historyIndex + 1}/{game.history().length}
                       </>
@@ -1165,7 +1366,7 @@ function GameContent() {
                   <button
                     onClick={handleNextMove}
                     disabled={historyIndex === -1 || !viewingHistory}
-                    className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white text-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 disabled:hover:scale-100"
+                    className="w-10 h-10 bg-primary text-primary-foreground hover:opacity-90 disabled:bg-muted disabled:cursor-not-allowed rounded-lg text-xl flex items-center justify-center transition-all shadow-lg hover:scale-105 disabled:hover:scale-100"
                     title="Next move"
                   >
                     ▶
@@ -1174,7 +1375,7 @@ function GameContent() {
                   {viewingHistory && (
                     <button
                       onClick={handleReturnToCurrent}
-                      className="ml-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-semibold transition-all shadow-lg hover:scale-105"
+                      className="ml-2 px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 rounded-lg text-xs font-semibold transition-all shadow-lg hover:scale-105"
                       title="Return to current position"
                     >
                       ⏩ Current
@@ -1184,9 +1385,11 @@ function GameContent() {
               )}
             </div>
 
-            <div className="order-3 bg-gray-800/60 backdrop-blur-xl rounded-xl p-2 border border-purple-500/30">
+            <div className="order-3 bg-card/60 backdrop-blur-xl rounded-xl p-2 border border-border">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-300">Player</p>
+                <p className="text-xs text-muted-foreground">
+                  Player {isPlayerWhite ? "♔ White" : "♚ Black"}
+                </p>
                 {playerID !== "Guest" && (
                   <button
                     onClick={() => setShowProfile(true)}
@@ -1197,26 +1400,34 @@ function GameContent() {
                   </button>
                 )}
               </div>
-              <p className="font-mono text-sm md:text-base font-semibold text-cyan-200 break-all">
-                {playerID.length > 16 ? `${playerID.slice(0, 10)}...${playerID.slice(-6)}` : playerID}
+              <p className="font-mono text-sm md:text-base font-semibold text-foreground break-all">
+                {playerID.length > 12 ? `${playerID.slice(0, 6)}...${playerID.slice(-4)}` : playerID}
               </p>
               <div className="mt-2 flex items-center justify-between">
-                <p className="text-xs text-gray-300">Your Time</p>
+                <p className="text-xs text-muted-foreground">Your Time</p>
                 <p className={`text-2xl font-bold ${playerClockColor}`}>{formatTime(playerTime)}</p>
               </div>
             </div>
           </div>
 
           <div className="mt-2 flex-shrink-0">
-            <p className="text-center text-sm md:text-base font-bold bg-gray-800/60 backdrop-blur-xl rounded-xl border border-indigo-500/30 px-3 py-2">
+            <p className="text-center text-sm md:text-base font-bold bg-card/60 backdrop-blur-xl rounded-xl border border-border px-3 py-2">
               {status}
             </p>
 
             {!game.isGameOver() && gameId && (
-              <div className="mt-2 flex justify-center">
+              <div className="mt-2 flex justify-center gap-2">
+                {viewingHistory && (
+                  <button
+                    onClick={handleReturnToCurrent}
+                    className="rounded-xl px-4 py-2 text-sm md:text-base font-bold bg-primary text-primary-foreground hover:opacity-90 shadow-xl transition-all"
+                  >
+                    ⏩ Return to Game
+                  </button>
+                )}
                 <button
                   onClick={handleResign}
-                  className="rounded-xl px-5 py-2 text-sm md:text-base font-bold bg-red-600 hover:bg-red-500 shadow-xl border border-red-400/40 transition-all"
+                  className="rounded-xl px-5 py-2 text-sm md:text-base font-bold bg-red-600 hover:bg-red-500 text-white shadow-xl transition-all"
                 >
                   Resign
                 </button>
@@ -1227,7 +1438,7 @@ function GameContent() {
               <div className="mt-2 flex justify-center">
                 <button
                   onClick={() => window.location.href = '/chess'}
-                  className="rounded-xl px-5 py-2 text-sm md:text-base font-bold bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 shadow-xl border border-emerald-300/40 transition-all"
+                  className="rounded-xl px-5 py-2 text-sm md:text-base font-bold bg-primary text-primary-foreground hover:opacity-90 shadow-xl transition-all"
                 >
                   Play Again
                 </button>
