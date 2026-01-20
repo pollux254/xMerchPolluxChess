@@ -23,14 +23,14 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Find tournaments in "waiting" status older than 10 minutes
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
+    // Find tournaments in "waiting" status that have expired
+    const now = new Date().toISOString()
 
     const { data: expiredTournaments, error: findError } = await supabase
       .from('tournaments')
-      .select('id, created_at, tournament_size')
+      .select('id, created_at, expires_at, tournament_size')
       .eq('status', 'waiting')
-      .lt('created_at', tenMinutesAgo.toISOString())
+      .lt('expires_at', now)
 
     if (findError) {
       console.error('[Expire] Error finding tournaments:', findError)
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
       
       console.log(`[Expire] Expiring tournament ${tournamentId}`)
 
-      // Update tournament status to expired
+      // Update tournament status to cancelled
       const { error: updateError } = await supabase
         .from('tournaments')
         .update({
-          status: 'expired',
-          cancelled_reason: 'Tournament expired after 10 minutes'
+          status: 'cancelled',
+          cancelled_reason: 'Tournament expired after 10 minutes - not enough players joined'
         })
         .eq('id', tournamentId)
 

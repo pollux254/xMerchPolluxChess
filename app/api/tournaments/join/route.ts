@@ -1,20 +1,9 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabase-client'
 import { NextRequest, NextResponse } from 'next/server'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(request: NextRequest) {
   try {
     console.log('[Tournament Join] Starting...')
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('[Tournament Join] Missing Supabase credentials')
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      )
-    }
 
     const body = await request.json()
     console.log('[Tournament Join] Request body:', body)
@@ -25,7 +14,7 @@ export async function POST(request: NextRequest) {
       entryFee,
       currency,
       issuer,
-      signingWallet, // ✨ BUG FIX 1: Add signing wallet validation
+      signingWallet,
     } = body
 
     if (!playerAddress || !tournamentSize || !entryFee || !currency) {
@@ -35,7 +24,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ✨ BUG FIX 1: Server-side wallet validation
+    // Wallet validation
     if (signingWallet && signingWallet !== playerAddress) {
       console.error('[Tournament Join] Wallet mismatch:', {
         playerAddress,
@@ -49,7 +38,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const supabase = getSupabaseClient()
 
     // Check if player is already in any active tournament
     const { data: existingEntries } = await supabase
@@ -60,7 +49,6 @@ export async function POST(request: NextRequest) {
 
     if (existingEntries && existingEntries.length > 0) {
       const existing = existingEntries[0]
-      // Handle array vs object for tournaments
       const tournament = Array.isArray(existing.tournaments)
         ? existing.tournaments[0]
         : existing.tournaments
@@ -118,6 +106,7 @@ export async function POST(request: NextRequest) {
           issuer: issuer || null,
           status: 'waiting',
           prize_pool: prizePool,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         })
         .select()
         .single()
@@ -155,14 +144,15 @@ export async function POST(request: NextRequest) {
       .select('*', { count: 'exact', head: true })
       .eq('tournament_id', tournamentId)
 
-    // Add player
+    // Add player with correct status
     const { error: insertErr } = await supabase
       .from('tournament_players')
       .insert({
         tournament_id: tournamentId,
         player_address: playerAddress,
         player_order: (currentCount || 0) + 1,
-        is_active: true,
+        status: 'joined',
+        joined_at: new Date().toISOString(),
       })
 
     if (insertErr) {

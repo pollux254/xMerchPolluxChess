@@ -490,6 +490,8 @@ export default function Chess() {
       if (!existingTournamentData) {
         console.log("🆕 Creating new tournament...")
         const prizePool = selectedFee * selectedSize * 0.95
+        const now = new Date()
+        const expiresAt = new Date(now.getTime() + 10 * 60 * 1000) // 10 minutes from now
         
         const { error: createError } = await supabase
           .from('tournaments')
@@ -500,7 +502,8 @@ export default function Chess() {
             currency: selectedAsset.currency,
             prize_pool: prizePool,
             status: 'waiting',
-            network: network
+            network: network,
+            expires_at: expiresAt.toISOString()
           })
 
         if (createError && createError.code !== '23505') {

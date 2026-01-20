@@ -223,7 +223,6 @@ serve(async (req: Request) => {
               player_address: memoData.player,
               player_order: (currentCount || 0) + 1,
               status: 'joined',  // CRITICAL FIX: Use 'joined' not 'waiting'
-              is_active: true,
               joined_at: new Date().toISOString()
             })
 
