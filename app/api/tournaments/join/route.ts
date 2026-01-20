@@ -229,28 +229,39 @@ export async function POST(request: NextRequest) {
       if (players && players.length === tournamentSize) {
         console.log(`[Tournament] Creating game for ${tournamentSize} players`)
         
-        // Create game record
-        const { error: gameError } = await supabase
+        // CRITICAL: Check if game already exists (prevent duplicates)
+        const { data: existingGame } = await supabase
           .from('tournament_games')
-          .insert({
-            tournament_id: tournamentId,
-            player_white: players[0].player_address,
-            player_black: players[1].player_address,
-            current_turn: 'white',
-            white_time_remaining: 1200,
-            black_time_remaining: 1200,
-            turn_started_at: new Date().toISOString(),
-            last_move_at: new Date().toISOString(),
-            first_move_made: false,
-            started_at: new Date().toISOString(),
-            status: 'active',
-            game_state: '{"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}',
-          })
+          .select('id')
+          .eq('tournament_id', tournamentId)
+          .maybeSingle()
         
-        if (gameError) {
-          console.error(`[Tournament] Failed to create game:`, gameError)
+        if (!existingGame) {
+          // Create game record
+          const { error: gameError } = await supabase
+            .from('tournament_games')
+            .insert({
+              tournament_id: tournamentId,
+              player_white: players[0].player_address,
+              player_black: players[1].player_address,
+              current_turn: 'white',
+              white_time_remaining: 1200,
+              black_time_remaining: 1200,
+              turn_started_at: new Date().toISOString(),
+              last_move_at: new Date().toISOString(),
+              first_move_made: false,
+              started_at: new Date().toISOString(),
+              status: 'active',
+              game_state: '{"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}',
+            })
+          
+          if (gameError) {
+            console.error(`[Tournament] Failed to create game:`, gameError)
+          } else {
+            console.log(`[Tournament] Game created successfully for ${tournamentId}`)
+          }
         } else {
-          console.log(`[Tournament] Game created successfully for ${tournamentId}`)
+          console.log(`[Tournament] Game already exists for ${tournamentId}, skipping creation`)
         }
       } else {
         console.error(`[Tournament] Expected ${tournamentSize} players but found ${players?.length}`)

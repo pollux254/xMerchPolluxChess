@@ -491,16 +491,41 @@ export default function Chess() {
       // Check if already in this specific tournament
       const { data: alreadyInTournament } = await supabase
         .from('tournament_players')
-        .select('tournament_id, status')
+        .select('tournament_id, status, tournaments!inner(status, expires_at, created_at)')
         .eq('player_address', playerID)
         .eq('tournament_id', tournamentId)
         .maybeSingle()
       
       if (alreadyInTournament) {
-        console.log("❌ Player already in this tournament")
-        alert("You're already in this tournament!\n\nRedirecting to waiting room...")
-        window.location.href = `/waiting-room?tournamentId=${tournamentId}`
-        return
+        // CRITICAL: Check if the tournament is expired before redirecting
+        const tournament = Array.isArray(alreadyInTournament.tournaments)
+          ? alreadyInTournament.tournaments[0]
+          : alreadyInTournament.tournaments
+        
+        if (tournament) {
+          const expiresAt = tournament.expires_at 
+            ? new Date(tournament.expires_at).getTime()
+            : new Date(tournament.created_at).getTime() + (10 * 60 * 1000)
+          const now = Date.now()
+          
+          if (expiresAt <= now || tournament.status === 'cancelled') {
+            console.log("❌ Tournament is expired/cancelled - removing player")
+            // Remove from expired tournament
+            await supabase
+              .from('tournament_players')
+              .delete()
+              .eq('tournament_id', tournamentId)
+              .eq('player_address', playerID)
+            
+            // Continue with payment (don't return)
+            console.log("✅ Removed from expired tournament, proceeding with fresh payment")
+          } else {
+            console.log("❌ Player already in this ACTIVE tournament")
+            alert("You're already in this tournament!\n\nRedirecting to waiting room...")
+            window.location.href = `/waiting-room?tournamentId=${tournamentId}`
+            return
+          }
+        }
       }
       
       // Check if in ANY active tournament
