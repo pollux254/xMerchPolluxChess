@@ -152,7 +152,7 @@ function WaitingRoomContent() {
             console.log("✅ Game exists, redirecting...")
             setTimeout(() => {
               window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-            }, 10000)
+            }, 2000) // ✅ Changed from 10000 to 2000 (2 seconds)
           } else {
             console.log("⏳ Game being created, waiting...")
             // Game is being created, keep polling
@@ -227,7 +227,7 @@ function WaitingRoomContent() {
                     console.log("✅ Game exists, redirecting from realtime update...")
                     setTimeout(() => {
                       window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-                    }, 10000)
+                    }, 2000) // ✅ Changed from 10000 to 2000 (2 seconds)
                   } else {
                     console.log("⏳ Game being created, waiting...")
                   }
@@ -437,7 +437,7 @@ function WaitingRoomContent() {
                 className="text-center mt-3"
               >
                 <p className="text-base md:text-lg font-bold text-emerald-300 animate-pulse">
-                  Starting game in 10 seconds...
+                  Starting game in 2 seconds...
                 </p>
               </motion.div>
             )}
