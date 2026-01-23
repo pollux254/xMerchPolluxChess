@@ -77,14 +77,12 @@ export default function Chess() {
     }
   }, [])
 
-  // Fix 2: Auto-polling to check if player joined from another tab/device
-  // Reduced frequency to avoid overwhelming the client
   useEffect(() => {
     if (!playerID) return
     
     const interval = setInterval(() => {
       checkExistingTournament(playerID)
-    }, 10000) // Changed from 3s to 10s
+    }, 10000)
     
     return () => clearInterval(interval)
   }, [playerID])
@@ -132,7 +130,6 @@ export default function Chess() {
           
           const now = Date.now()
           
-          // If expired, remove player and DON'T redirect
           if (expiresAt <= now || tournament.status === 'cancelled') {
             console.log("🧹 Removing player from expired tournament")
             await supabase
@@ -140,10 +137,9 @@ export default function Chess() {
               .delete()
               .eq('player_address', playerAddress)
               .eq('tournament_id', data.tournament_id)
-            return // Let them make new payment
+            return
           }
           
-          // Only redirect if tournament is active
           console.log("✅ Player in active tournament:", data.tournament_id)
           
           setExistingTournament({
@@ -489,113 +485,55 @@ export default function Chess() {
       return
     }
 
-    // Fix 1: CRITICAL - Check if player is already in this tournament BEFORE payment
-    try {
-      const tournamentId = `${selectedAsset.currency}_${selectedSize}_${selectedFee}_${network.toUpperCase()}_ROOM1`
-      
-      console.log("🔍 Checking if player already in tournament...")
-      
-      // Check if already in this specific tournament
-      const { data: alreadyInTournament } = await supabase
-        .from('tournament_players')
-        .select('tournament_id, status, tournaments!inner(status, expires_at, created_at)')
-        .eq('player_address', playerID)
-        .eq('tournament_id', tournamentId)
-        .maybeSingle()
-      
-      if (alreadyInTournament) {
-        // CRITICAL: Check if the tournament is expired before redirecting
-        const tournament = Array.isArray(alreadyInTournament.tournaments)
-          ? alreadyInTournament.tournaments[0]
-          : alreadyInTournament.tournaments
-        
-        if (tournament) {
-          const expiresAt = tournament.expires_at 
-            ? new Date(tournament.expires_at).getTime()
-            : new Date(tournament.created_at).getTime() + (10 * 60 * 1000)
-          const now = Date.now()
-          
-          if (expiresAt <= now || tournament.status === 'cancelled') {
-            console.log("❌ Tournament is expired/cancelled - removing player")
-            // Remove from expired tournament
-            await supabase
-              .from('tournament_players')
-              .delete()
-              .eq('tournament_id', tournamentId)
-              .eq('player_address', playerID)
-            
-            // Continue with payment (don't return)
-            console.log("✅ Removed from expired tournament, proceeding with fresh payment")
-          } else {
-            console.log("❌ Player already in this ACTIVE tournament")
-            alert("You're already in this tournament!\n\nRedirecting to waiting room...")
-            window.location.href = `/waiting-room?tournamentId=${tournamentId}`
-            return
-          }
-        }
-      }
-      
-      // Check if in ANY active tournament
-      const { data: inAnyTournament } = await supabase
-        .from('tournament_players')
-        .select('tournament_id, tournaments!inner(status)')
-        .eq('player_address', playerID)
-        .in('tournaments.status', ['waiting', 'in_progress'])
-      
-      if (inAnyTournament && inAnyTournament.length > 0) {
-        const existingTournamentId = inAnyTournament[0].tournament_id
-        console.log("❌ Player already in another tournament:", existingTournamentId)
-        alert("You're already in another tournament!\n\nRedirecting...")
-        window.location.href = `/waiting-room?tournamentId=${existingTournamentId}`
-        return
-      }
-      
-      console.log("✅ Player not in any tournament - proceeding with payment")
-    } catch (err) {
-      console.error("⚠️ Error checking tournament status:", err)
-      // Continue anyway - backend will catch duplicates
-    }
-
     try {
       setLoadingPay(true)
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
 
-      const tournamentId = `${selectedAsset.currency}_${selectedSize}_${selectedFee}_${network.toUpperCase()}_ROOM1`
-      console.log("📝 Tournament ID:", tournamentId)
+      // CRITICAL FIX: Call join API FIRST to get/create tournament with real UUID
+      console.log("🔍 Finding or creating tournament...")
+      const joinRes = await fetch('/api/tournaments/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerAddress: playerID,
+          tournamentSize: selectedSize,
+          entryFee: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer,
+        })
+      })
 
-      const { data: existingTournamentData } = await supabase
-        .from('tournaments')
-        .select('*')
-        .eq('id', tournamentId)
-        .single()
-
-      if (!existingTournamentData) {
-        console.log("🆕 Creating new tournament...")
-        const prizePool = selectedFee * selectedSize * 0.95
-        const now = new Date()
-        const expiresAt = new Date(now.getTime() + 10 * 60 * 1000)
+      if (!joinRes.ok) {
+        const errorData = await joinRes.json()
         
-        const { error: createError } = await supabase
-          .from('tournaments')
-          .insert({
-            id: tournamentId,
-            tournament_size: selectedSize,
-            entry_fee: selectedFee,
-            currency: selectedAsset.currency,
-            prize_pool: prizePool,
-            status: 'waiting',
-            network: network,
-            expires_at: expiresAt.toISOString()
-          })
-
-        if (createError && createError.code !== '23505') {
-          throw createError
+        // Check if player already in tournament
+        if (joinRes.status === 409 && errorData.tournamentId) {
+          console.log("❌ Player already in tournament:", errorData.tournamentId)
+          alert("You're already in a tournament!\n\nRedirecting...")
+          window.location.href = `/waiting-room?tournamentId=${errorData.tournamentId}`
+          return
         }
+        
+        throw new Error(errorData.error || 'Failed to join tournament')
       }
 
+      const joinData = await joinRes.json()
+      const tournamentId = joinData.tournamentId // ✅ Real UUID from backend
+      
+      console.log("✅ Tournament ready:", tournamentId)
+      console.log("📊 Players:", `${joinData.playerCount}/${joinData.tournamentSize}`)
+
+      // If tournament is already full, redirect immediately
+      if (joinData.isFull) {
+        console.log("🎉 Tournament is full! Redirecting to game...")
+        window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
+        return
+      }
+
+      // Create payment memo with REAL tournament ID
       const memoData = {
         action: "join",
-        tournament: tournamentId,
+        tournament: tournamentId, // ✅ Using real UUID
         player: playerID,
         network: network
       }
@@ -638,16 +576,9 @@ export default function Chess() {
       if (isMobileDevice) {
         console.log("📱 Mobile: Using deep link for Xaman app")
         const deepLink = `xumm://xumm.app/sign/${uuid}`
-        
         console.log("📱 Deep link:", deepLink)
-        
-        // Open Xaman app with deep link
         window.location.href = deepLink
-        
-        // DON'T redirect to nextUrl - stay on page and track via WebSocket
-        // The WebSocket will handle redirect after payment is signed
       } else {
-        // Desktop: use popup
         console.log("💻 Desktop - Opening popup")
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
@@ -677,10 +608,9 @@ export default function Chess() {
           
           console.log("✅ Payment signed! Redirecting to waiting room...")
           
-          // Show brief loading indicator instead of alert
           setLoadingPay(true)
-          // Wait 3 seconds to give webhook time to add player to database
-          await new Promise(resolve => setTimeout(resolve, 3000))
+          // Wait 2 seconds for webhook to process
+          await new Promise(resolve => setTimeout(resolve, 2000))
           window.location.href = `/waiting-room?tournamentId=${tournamentId}`
           
           ws.close()
