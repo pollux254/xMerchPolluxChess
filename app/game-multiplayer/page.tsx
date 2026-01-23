@@ -580,7 +580,7 @@ function GameMultiplayerContent() {
           <div className="lg:col-span-1">
             <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl p-4">
               <Chessboard 
-                fen={gamePosition} 
+                position={gamePosition} 
                 onPieceDrop={onDrop} 
                 boardOrientation={myColor === 'white' ? 'white' : 'black'} 
               />
