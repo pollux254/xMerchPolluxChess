@@ -125,13 +125,10 @@ function GameMultiplayerContent() {
         if (!retryData) {
           throw new Error("Game not found. Please refresh.")
         }
-        // Use the retry data if found
-        Object.assign(data || {}, retryData)
       }
 
       console.log("🎮 Game loaded:", data)
 
-      // CRITICAL FIX: player_white and player_black are ADDRESSES, not UUIDs
       const whitePlayerAddress = data.player_white
       const blackPlayerAddress = data.player_black
 
@@ -582,7 +579,12 @@ function GameMultiplayerContent() {
 
           <div className="lg:col-span-1">
             <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl p-4">
-              <Chessboard position={gamePosition} onPieceDrop={onDrop} boardOrientation={(myColor === 'white' ? 'white' : 'black') as 'white' | 'black'} />
+              <Chessboard 
+                id="MultiplayerBoard"
+                position={gamePosition} 
+                onPieceDrop={onDrop} 
+                boardOrientation={myColor === 'white' ? 'white' : 'black'} 
+              />
               
               <div className="mt-4 text-center">
                 {game.isCheck() && <p className="text-red-400 text-xl font-bold animate-pulse">CHECK!</p>}
