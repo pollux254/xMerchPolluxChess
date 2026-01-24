@@ -158,7 +158,7 @@ export default function Home() {
       {/* Below-the-Fold Content - Only visible after scrolling on desktop (≥768px) */}
       <div className="w-full bg-muted/10">
         {/* Important Notice */}
-        <section className="max-w-4xl mx-auto px-6 py-4">
+        <section className="max-w-4xl mx-auto px-2 py-4">
           <div className="rounded-2xl border border-red-600/40 bg-red-900/20 p-10 text-center backdrop-blur-sm">
             <h2 className="text-3xl font-bold mb-6">Important Notice</h2>
             <p className="text-lg leading-relaxed">
