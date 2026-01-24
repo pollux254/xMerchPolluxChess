@@ -33,6 +33,47 @@ interface GameState {
   result_reason?: string
 }
 
+// 🪝 Helper: Trigger Hook prize distribution
+async function triggerPrizeDistribution(
+  tournamentId: string, 
+  winnerAddress: string, 
+  network: 'testnet' | 'mainnet' = 'testnet'
+) {
+  try {
+    console.log('🏆 Triggering prize distribution...')
+    console.log('   Tournament:', tournamentId)
+    console.log('   Winner:', winnerAddress)
+    console.log('   Network:', network)
+    
+    const response = await fetch('/api/tournaments/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tournamentId,
+        winnerAddress,
+        network
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      console.error('❌ Prize distribution failed:', error)
+      return false
+    }
+
+    const result = await response.json()
+    console.log('✅ Prize distribution successful:', result)
+    console.log('   Winner Prize:', result.winnerPrize)
+    console.log('   Platform Fee:', result.platformFee)
+    console.log('   TX Hash:', result.txHash)
+    return true
+    
+  } catch (error) {
+    console.error('❌ Error triggering prize distribution:', error)
+    return false
+  }
+}
+
 function GameMultiplayerContent() {
   const searchParams = useSearchParams()
   const gameId = searchParams.get("gameId")
@@ -52,6 +93,7 @@ function GameMultiplayerContent() {
   const [error, setError] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>("light")
   const [settings, setSettings] = useState<PlayerSettings | null>(null)
+  const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
   
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const supabase = getSupabaseClient()
@@ -62,6 +104,11 @@ function GameMultiplayerContent() {
       setTheme(savedTheme)
       document.documentElement.classList.remove("light", "middle", "dark")
       document.documentElement.classList.add(savedTheme)
+    }
+
+    const savedNetwork = localStorage.getItem("network") as 'testnet' | 'mainnet'
+    if (savedNetwork) {
+      setNetwork(savedNetwork)
     }
   }, [])
 
@@ -289,6 +336,7 @@ function GameMultiplayerContent() {
     }
   }, [gameStarted, gameState, game, turnStartedAt, gameId])
 
+  // 🪝 UPDATED: Timeout handler with Hook integration
   async function handleTimeout(color: 'white' | 'black') {
     const winner = color === 'white' ? gameState?.player_black : gameState?.player_white
     
@@ -302,7 +350,14 @@ function GameMultiplayerContent() {
       })
       .eq('id', gameId)
 
-    alert(`⏰ Time's up! ${color === 'white' ? 'Black' : 'White'} wins by timeout!`)
+    // 🪝 Trigger Hook prize distribution
+    await triggerPrizeDistribution(tournamentId!, winner!, network)
+
+    alert(`⏰ Time's up! ${color === 'white' ? 'Black' : 'White'} wins by timeout!\n\nPrizes are being distributed...`)
+    
+    setTimeout(() => {
+      window.location.href = '/chess'
+    }, 3000)
   }
 
   function onDrop(sourceSquare: string, targetSquare: string): boolean {
@@ -359,23 +414,54 @@ function GameMultiplayerContent() {
       
       setTurnStartedAt(now)
 
+      // 🪝 UPDATED: Checkmate handler with Hook integration
       if (game.isCheckmate()) {
+        const winner = myColor === 'white' ? gameState?.player_white : gameState?.player_black
         updates.status = 'completed'
-        updates.winner = myColor === 'white' ? gameState?.player_white : gameState?.player_black
+        updates.winner = winner
         updates.result_reason = 'checkmate'
         updates.completed_at = new Date().toISOString()
-        alert(`🏆 Checkmate! ${myColor === 'white' ? 'White' : 'Black'} wins!`)
-      } else if (game.isDraw()) {
+        
+        // Update database first
+        await supabase.from('tournament_games').update(updates).eq('id', gameId)
+        
+        // 🪝 Trigger Hook prize distribution
+        await triggerPrizeDistribution(tournamentId!, winner!, network)
+        
+        alert(`🏆 Checkmate! ${myColor === 'white' ? 'White' : 'Black'} wins!\n\nPrizes are being distributed...`)
+        
+        setTimeout(() => {
+          window.location.href = '/chess'
+        }, 3000)
+        
+        return true // Exit early since we already updated DB
+      } 
+      // 🪝 UPDATED: Draw/Tiebreaker handler with Hook integration
+      else if (game.isDraw()) {
+        const winner = calculateMaterialTiebreaker()
         updates.status = 'completed'
         updates.result_reason = game.isStalemate() ? 'stalemate' : 'draw'
         updates.completed_at = new Date().toISOString()
-        
-        const winner = calculateMaterialTiebreaker()
         updates.winner = winner
         
-        alert(`🤝 Draw! Winner by material tiebreaker: ${winner === gameState?.player_white ? 'White' : 'Black'}`)
+        // Update database first
+        await supabase.from('tournament_games').update(updates).eq('id', gameId)
+        
+        // 🪝 Trigger Hook prize distribution (only if not a perfect tie)
+        if (winner !== 'tie') {
+          await triggerPrizeDistribution(tournamentId!, winner, network)
+        }
+        
+        alert(`🤝 Draw! Winner by material tiebreaker: ${winner === gameState?.player_white ? 'White' : 'Black'}\n\nPrizes are being distributed...`)
+        
+        setTimeout(() => {
+          window.location.href = '/chess'
+        }, 3000)
+        
+        return true // Exit early
       }
 
+      // Regular move (game continues)
       await supabase.from('tournament_games').update(updates).eq('id', gameId)
 
       return true
@@ -416,6 +502,7 @@ function GameMultiplayerContent() {
     }
   }
 
+  // 🪝 UPDATED: Resign handler with Hook integration
   async function handleResign() {
     const confirm = window.confirm("Are you sure you want to resign?")
     if (!confirm) return
@@ -432,8 +519,14 @@ function GameMultiplayerContent() {
       })
       .eq('id', gameId)
 
-    alert("You resigned.")
-    window.location.href = "/chess"
+    // 🪝 Trigger Hook prize distribution
+    await triggerPrizeDistribution(tournamentId!, winner!, network)
+
+    alert("You resigned.\n\nPrizes are being distributed...")
+    
+    setTimeout(() => {
+      window.location.href = '/chess'
+    }, 3000)
   }
 
   useEffect(() => {
@@ -621,6 +714,7 @@ function GameMultiplayerContent() {
                 <p>Tournament: {gameState?.tournament_id?.slice(0, 8)}...</p>
                 <p>Format: Single Elimination</p>
                 <p>Time Control: 20+0</p>
+                <p className="text-purple-400">🪝 Hook-Enabled Prizes</p>
               </div>
             </div>
           </div>

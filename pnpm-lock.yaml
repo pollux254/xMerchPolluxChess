@@ -55,6 +55,9 @@ importers:
       react-dom:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
+      ripple-address-codec:
+        specifier: ^5.0.0
+        version: 5.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       stockfish:
         specifier: ^17.1.0
         version: 17.1.0

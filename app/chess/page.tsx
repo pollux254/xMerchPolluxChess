@@ -15,15 +15,18 @@ type Asset = {
   currency: string
   issuer: string | null
   label: string
+  network: "xahau" | "xrpl-bridged"
 }
 
+// ✨ SEPARATED BY NETWORK
 const assets: Asset[] = [
-  { currency: "XAH", issuer: null, label: "XAH (Native)" },
-  { currency: "PLX", issuer: "rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q", label: "PLX" },
-  { currency: "XRP", issuer: null, label: "XRP (IOU - trusted issuer required)" },
-  { currency: "EVR", issuer: "rEvernodee8dJLaFsujS6q1EiXvZYmHXr8", label: "EVR" },
-  { currency: "FUZZY", issuer: "rhCAT4hRdi2Y9puNdkpMzxrdKa5wkppR62", label: "FUZZY" },
-  { currency: "RLUSD", issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", label: "RLUSD" },
+  // Xahau Native Network
+  { currency: "XAH", issuer: null, label: "XAH (Native)", network: "xahau" },
+  { currency: "EVR", issuer: "rEvernodee8dJLaFsujS6q1EiXvZYmHXr8", label: "EVR", network: "xahau" },
+  
+  // XRPL Bridged (Not ready yet - will add later)
+  // { currency: "PLX", issuer: "rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q", label: "PLX (Bridged)", network: "xrpl-bridged" },
+  // { currency: "FUZZY", issuer: "rhCAT4hRdi2Y9puNdkpMzxrdKa5wkppR62", label: "FUZZY (Bridged)", network: "xrpl-bridged" },
 ]
 
 const supabase = createClient(
@@ -53,9 +56,10 @@ export default function Chess() {
   const feeTiers = [10, 25, 50, 100]
   const sizes = [2, 4, 8, 16]
 
+  // 🪝 HOOK ADDRESSES - Update these with your deployed Hook accounts
   const hookAddress = network === 'testnet'
-    ? (process.env.NEXT_PUBLIC_HOOK_ADDRESS_TESTNET || 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY')
-    : (process.env.NEXT_PUBLIC_HOOK_ADDRESS || process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || 'r4NnL62r1pJyQ5AZYaoHKjrV9tErJBUpWY')
+    ? 'rpbvh5LmrV17BVCu5fAc1ybKev1pFa8evh' // ✅ Alice's testnet Hook account
+    : (process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || 'rYOUR_MAINNET_HOOK_ADDRESS')
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as Theme
@@ -474,6 +478,7 @@ export default function Chess() {
     window.location.reload()
   }
 
+  // 🪝 UPDATED: Payment goes to Hook account
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -485,11 +490,18 @@ export default function Chess() {
       return
     }
 
+    // ✅ Only XAH and EVR use Hooks (Xahau native)
+    if (selectedAsset.network !== "xahau") {
+      alert("This token is not yet supported. Please use XAH or EVR.")
+      return
+    }
+
     try {
       setLoadingPay(true)
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
+      console.log(`🪝 Hook Address: ${hookAddress}`)
 
-      // CRITICAL FIX: Call join API FIRST to get/create tournament with real UUID
+      // Create/join tournament FIRST
       console.log("🔍 Finding or creating tournament...")
       const joinRes = await fetch('/api/tournaments/join', {
         method: 'POST',
@@ -506,7 +518,6 @@ export default function Chess() {
       if (!joinRes.ok) {
         const errorData = await joinRes.json()
         
-        // Check if player already in tournament
         if (joinRes.status === 409 && errorData.tournamentId) {
           console.log("❌ Player already in tournament:", errorData.tournamentId)
           alert("You're already in a tournament!\n\nRedirecting...")
@@ -518,28 +529,30 @@ export default function Chess() {
       }
 
       const joinData = await joinRes.json()
-      const tournamentId = joinData.tournamentId // ✅ Real UUID from backend
+      const tournamentId = joinData.tournamentId
       
       console.log("✅ Tournament ready:", tournamentId)
       console.log("📊 Players:", `${joinData.playerCount}/${joinData.tournamentSize}`)
 
-      // If tournament is already full, redirect immediately
       if (joinData.isFull) {
         console.log("🎉 Tournament is full! Redirecting to game...")
         window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
         return
       }
 
-      // Create payment memo with REAL tournament ID
+      // Create payment memo
       const memoData = {
         action: "join",
-        tournament: tournamentId, // ✅ Using real UUID
+        tournament: tournamentId,
         player: playerID,
         network: network
       }
 
-      console.log("📤 Creating Xaman payload...")
-      const payloadRes = await fetch("/api/payment", {
+      console.log("📤 Creating Xaman payload for Hook payment...")
+      console.log("💰 Destination: Hook Account →", hookAddress)
+      
+      // 🪝 CRITICAL: Payment goes to HOOK ACCOUNT
+      const payloadRes = await fetch("/api/payment-hook", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -549,6 +562,7 @@ export default function Chess() {
           amount: selectedFee,
           currency: selectedAsset.currency,
           issuer: selectedAsset.issuer,
+          destination: hookAddress, // ✅ Hook account, not your wallet
           memo: JSON.stringify(memoData),
           network: network
         })
@@ -568,7 +582,6 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // Mobile detection
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
       
       let xamanPopup: Window | null = null
@@ -576,7 +589,6 @@ export default function Chess() {
       if (isMobileDevice) {
         console.log("📱 Mobile: Using deep link for Xaman app")
         const deepLink = `xumm://xumm.app/sign/${uuid}`
-        console.log("📱 Deep link:", deepLink)
         window.location.href = deepLink
       } else {
         console.log("💻 Desktop - Opening popup")
@@ -609,7 +621,6 @@ export default function Chess() {
           console.log("✅ Payment signed! Redirecting to waiting room...")
           
           setLoadingPay(true)
-          // Wait 2 seconds for webhook to process
           await new Promise(resolve => setTimeout(resolve, 2000))
           window.location.href = `/waiting-room?tournamentId=${tournamentId}`
           
@@ -685,6 +696,10 @@ export default function Chess() {
       window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${defaultBotRank}`
     }
   }
+
+  // Filter assets by network for display
+  const xahauAssets = assets.filter(a => a.network === "xahau")
+  const xrplAssets = assets.filter(a => a.network === "xrpl-bridged")
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center p-4">
@@ -818,34 +833,53 @@ export default function Chess() {
                 </div>
               </div>
 
+              {/* ✨ UPDATED: Asset Selection Separated by Network */}
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Entry Fee</p>
-                <div className="relative mb-4">
-                  <button
-                    onClick={() => setShowAssetDropdown(!showAssetDropdown)}
-                    className="w-full rounded-xl py-3 px-4 font-bold text-left bg-muted/50 border border-border hover:bg-muted transition-all flex items-center justify-between"
-                  >
-                    <span>{selectedAsset.label}</span>
-                    <span className="text-xl">▼</span>
-                  </button>
-                  {showAssetDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-border bg-card shadow-lg overflow-hidden z-10">
-                      {assets.map((asset, index) => (
-                        <button
-                          key={index}
-                          onClick={() => {
-                            setSelectedAssetIndex(index)
-                            setShowAssetDropdown(false)
-                          }}
-                          className="w-full px-4 py-3 text-left hover:bg-muted transition-all"
-                        >
-                          {asset.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">
+                  Entry Fee Token
+                </p>
+                
+                {/* Xahau Native Section */}
+                <div className="mb-3">
+                  <p className="text-xs text-muted-foreground mb-2 px-2">🪝 Xahau Network (Hook-Enabled)</p>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowAssetDropdown(!showAssetDropdown)}
+                      className="w-full rounded-xl py-3 px-4 font-bold text-left bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 hover:border-purple-500 transition-all flex items-center justify-between"
+                    >
+                      <span>{selectedAsset.label}</span>
+                      <span className="text-xl">▼</span>
+                    </button>
+                    {showAssetDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-border bg-card shadow-lg overflow-hidden z-10">
+                        {xahauAssets.map((asset, index) => (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              setSelectedAssetIndex(assets.indexOf(asset))
+                              setShowAssetDropdown(false)
+                            }}
+                            className="w-full px-4 py-3 text-left hover:bg-muted transition-all"
+                          >
+                            {asset.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+
+                {/* XRPL Bridged Section (Coming Soon) */}
+                {xrplAssets.length > 0 && (
+                  <div className="opacity-50">
+                    <p className="text-xs text-muted-foreground mb-2 px-2">🌉 XRPL Bridged (Coming Soon)</p>
+                    <div className="rounded-xl py-3 px-4 border border-border bg-muted/30 text-muted-foreground">
+                      PLX, FUZZY (Not yet available)
+                    </div>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-4 gap-2 mt-3">
                   {feeTiers.map((tier) => (
                     <motion.button
                       key={tier}
@@ -867,12 +901,23 @@ export default function Chess() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={loadingPay}
+                disabled={loadingPay || selectedAsset.network !== "xahau"}
                 onClick={handlePayFeeHook}
                 className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-4 font-bold text-white text-base md:text-lg shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {loadingPay ? "Processing..." : `🪝 Join via Hook (${selectedFee} ${selectedAsset.currency})`}
+                {loadingPay 
+                  ? "Processing..." 
+                  : selectedAsset.network === "xahau"
+                    ? `🪝 Join Tournament (${selectedFee} ${selectedAsset.currency})`
+                    : "🔒 Token Not Supported Yet"
+                }
               </motion.button>
+
+              {selectedAsset.network === "xahau" && (
+                <p className="text-xs text-center text-muted-foreground -mt-2">
+                  💡 Powered by Xahau Hooks - Trustless prize distribution
+                </p>
+              )}
 
               <div className="text-center text-muted-foreground font-medium my-2">Or</div>
 
