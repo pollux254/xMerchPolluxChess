@@ -188,7 +188,7 @@ If Hook needs to be reverted:
 - Network:
 - Hook Account:
 - Deployed:
-- Status:
+- Status: 
 
 ### Test Results
 - Test description: Status

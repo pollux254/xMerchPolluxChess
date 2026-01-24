@@ -39,6 +39,8 @@ serve(async (req: Request) => {
   try {
     const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY")
     const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET")
+    const XAMAN_API_KEY = Deno.env.get("XAMAN_API_KEY")
+    const XAMAN_API_SECRET = Deno.env.get("XAMAN_API_SECRET")
     const DESTINATION = Deno.env.get("XAH_DESTINATION")
     const DESTINATION_MAINNET = Deno.env.get("XAH_DESTINATION_MAINNET")
     const DESTINATION_TESTNET = Deno.env.get("XAH_DESTINATION_TESTNET")
