@@ -478,7 +478,7 @@ export default function Chess() {
     window.location.reload()
   }
 
-  // 🪝 UPDATED: Payment goes to Hook account
+  // 🪝 FIXED: Payment validation with WebSocket confirmation
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -490,7 +490,6 @@ export default function Chess() {
       return
     }
 
-    // ✅ Only XAH and EVR use Hooks (Xahau native)
     if (selectedAsset.network !== "xahau") {
       alert("This token is not yet supported. Please use XAH or EVR.")
       return
@@ -501,7 +500,7 @@ export default function Chess() {
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
       console.log(`🪝 Hook Address: ${hookAddress}`)
 
-      // Create/join tournament FIRST
+      // Step 1: Join tournament first
       console.log("🔍 Finding or creating tournament...")
       const joinRes = await fetch('/api/tournaments/join', {
         method: 'POST',
@@ -532,15 +531,8 @@ export default function Chess() {
       const tournamentId = joinData.tournamentId
       
       console.log("✅ Tournament ready:", tournamentId)
-      console.log("📊 Players:", `${joinData.playerCount}/${joinData.tournamentSize}`)
 
-      if (joinData.isFull) {
-        console.log("🎉 Tournament is full! Redirecting to game...")
-        window.location.href = `/game-multiplayer?tournamentId=${tournamentId}`
-        return
-      }
-
-      // Create payment memo
+      // Step 2: Create payment payload
       const memoData = {
         action: "join",
         tournament: tournamentId,
@@ -549,9 +541,7 @@ export default function Chess() {
       }
 
       console.log("📤 Creating Xaman payload for Hook payment...")
-      console.log("💰 Destination: Hook Account →", hookAddress)
       
-      // 🪝 CRITICAL: Payment goes to HOOK ACCOUNT
       const payloadRes = await fetch("/api/payment-hook", {
         method: "POST",
         headers: { 
@@ -562,7 +552,7 @@ export default function Chess() {
           amount: selectedFee,
           currency: selectedAsset.currency,
           issuer: selectedAsset.issuer,
-          destination: hookAddress, // ✅ Hook account, not your wallet
+          destination: hookAddress,
           memo: JSON.stringify(memoData),
           network: network
         })
@@ -570,7 +560,7 @@ export default function Chess() {
 
       if (!payloadRes.ok) {
         const errorData = await payloadRes.json()
-        throw new Error(`Xaman payload creation failed: ${errorData.error || 'Unknown error'}`)
+        throw new Error(`Payment creation failed: ${errorData.error || 'Unknown error'}`)
       }
 
       const payloadData = await payloadRes.json()
@@ -582,12 +572,13 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
+      // Step 3: Open Xaman
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
       
       let xamanPopup: Window | null = null
       
       if (isMobileDevice) {
-        console.log("📱 Mobile: Using deep link for Xaman app")
+        console.log("📱 Mobile: Using deep link")
         const deepLink = `xumm://xumm.app/sign/${uuid}`
         window.location.href = deepLink
       } else {
@@ -601,52 +592,69 @@ export default function Chess() {
         }
       }
 
+      // Step 4: CRITICAL - Wait for payment confirmation via WebSocket
       const ws = new WebSocket(websocketUrl)
       
-      const timeoutId = setTimeout(() => {
-        ws.close()
-        if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-        setLoadingPay(false)
-        alert("Payment request expired. Please try again.")
-      }, 5 * 60 * 1000)
-
-      ws.onmessage = async (event) => {
-        const status = JSON.parse(event.data)
-        console.log("📡 Xaman payment status:", status)
-
-        if (status.signed === true) {
-          clearTimeout(timeoutId)
-          if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-          
-          console.log("✅ Payment signed! Redirecting to waiting room...")
-          
-          setLoadingPay(true)
-          await new Promise(resolve => setTimeout(resolve, 2000))
-          window.location.href = `/waiting-room?tournamentId=${tournamentId}`
-          
+      const paymentPromise = new Promise<boolean>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
           ws.close()
-        } else if (status.signed === false) {
-          clearTimeout(timeoutId)
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-          
-          alert("❌ Payment rejected")
-          setLoadingPay(false)
-          ws.close()
+          reject(new Error("Payment request timed out"))
+        }, 5 * 60 * 1000)
+
+        ws.onmessage = (event) => {
+          const status = JSON.parse(event.data)
+          console.log("📡 Payment status:", status)
+
+          if (status.signed === true) {
+            clearTimeout(timeoutId)
+            if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+            console.log("✅ Payment confirmed!")
+            ws.close()
+            resolve(true) // Payment successful
+          } else if (status.signed === false) {
+            clearTimeout(timeoutId)
+            if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+            ws.close()
+            reject(new Error("Payment rejected by user"))
+          }
         }
-      }
 
-      ws.onerror = (error) => {
-        console.error("WebSocket error:", error)
-        clearTimeout(timeoutId)
-        if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-        alert("Connection error. Please try again.")
-        setLoadingPay(false)
-      }
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error)
+          clearTimeout(timeoutId)
+          if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+          reject(new Error("Connection error"))
+        }
+      })
+
+      // Wait for payment confirmation
+      await paymentPromise
+
+      // Step 5: ONLY redirect if payment was successful
+      console.log("✅ Payment confirmed - redirecting to waiting room...")
+      setLoadingPay(true)
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      window.location.href = `/waiting-room?tournamentId=${tournamentId}`
 
     } catch (err: any) {
-      console.error("❌ Hook payment error:", err)
-      alert(`Failed to start payment:\n\n${err.message || err}`)
-    } finally {
+      console.error("❌ Payment error:", err)
+      
+      // Show user-friendly error message
+      let errorMessage = "Payment failed"
+      if (err.message.includes("rejected")) {
+        errorMessage = "Payment was cancelled"
+      } else if (err.message.includes("timed out")) {
+        errorMessage = "Payment request expired"
+      } else if (err.message.includes("Connection error")) {
+        errorMessage = "Connection error - please try again"
+      } else {
+        errorMessage = err.message
+      }
+      
+      alert(`❌ ${errorMessage}\n\nPlease try again or contact support.`)
+      
+      // CRITICAL: Stay on current page, don't redirect
       setLoadingPay(false)
     }
   }
@@ -752,13 +760,14 @@ export default function Chess() {
         </div>
       </div>
 
+      {/* ✅ FIXED: Responsive modal with max-height and overflow */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className="w-full max-w-sm md:max-w-md mt-16 md:mt-0 rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-6 md:p-8 shadow-2xl max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain"
+        className="w-full max-w-sm md:max-w-md mt-16 md:mt-0 rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-4 md:p-6 shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain"
       >
-        <div className="text-center mb-5">
+        <div className="text-center mb-4">
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
             PolluxChess Tournament
           </h1>
@@ -767,20 +776,20 @@ export default function Chess() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {!playerID ? (
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               disabled={loadingLogin}
               onClick={handleLogin}
-              className="w-full rounded-2xl bg-primary py-4 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-base md:text-lg"
+              className="w-full rounded-2xl bg-primary py-3 md:py-4 font-bold text-primary-foreground shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-base md:text-lg"
             >
               {loadingLogin ? "Connecting..." : "Connect with Xaman"}
             </motion.button>
           ) : existingTournament ? (
             <>
-              <div className="text-center py-6">
+              <div className="text-center py-4">
                 <div className="mb-3 text-3xl">♟️</div>
                 <h2 className="text-xl font-bold mb-2">
                   {existingTournament.status === "waiting" 
@@ -788,7 +797,7 @@ export default function Chess() {
                     : "You're in an Active Game!"
                   }
                 </h2>
-                <p className="text-muted-foreground mb-6">
+                <p className="text-muted-foreground mb-4">
                   Redirecting you back...
                 </p>
                 <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
@@ -796,24 +805,24 @@ export default function Chess() {
             </>
           ) : (
             <>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between bg-muted/30 rounded-xl p-3">
                 <div className="text-center flex-1">
-                  <p className="text-sm text-muted-foreground mb-1">Connected as</p>
-                  <p className="font-mono text-base md:text-lg font-semibold text-foreground">
+                  <p className="text-xs text-muted-foreground mb-1">Connected as</p>
+                  <p className="font-mono text-sm md:text-base font-semibold text-foreground">
                     {playerID.slice(0, 10)}...{playerID.slice(-6)}
                   </p>
                 </div>
                 <button
                   onClick={handleDisconnect}
-                  className="ml-3 rounded-full p-3 bg-red-600/90 hover:bg-red-700 text-white transition-all"
+                  className="ml-2 rounded-full p-2 bg-red-600/90 hover:bg-red-700 text-white transition-all"
                   aria-label="Disconnect wallet"
                 >
-                  <LogOut className="h-5 w-5" />
+                  <LogOut className="h-4 w-4" />
                 </button>
               </div>
 
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">Tournament Size</p>
+                <p className="text-xs font-medium text-muted-foreground mb-2 text-center">Tournament Size</p>
                 <div className="grid grid-cols-4 gap-2">
                   {sizes.map((size) => (
                     <motion.button
@@ -821,7 +830,7 @@ export default function Chess() {
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setSelectedSize(size)}
-                      className={`rounded-xl py-4 font-bold transition-all ${
+                      className={`rounded-xl py-3 font-bold transition-all text-sm ${
                         selectedSize === size
                           ? "bg-primary text-primary-foreground shadow-lg"
                           : "border border-border bg-muted/50 hover:bg-muted"
@@ -833,19 +842,17 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* ✨ UPDATED: Asset Selection Separated by Network */}
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-3 text-center">
+                <p className="text-xs font-medium text-muted-foreground mb-2 text-center">
                   Entry Fee Token
                 </p>
                 
-                {/* Xahau Native Section */}
-                <div className="mb-3">
-                  <p className="text-xs text-muted-foreground mb-2 px-2">🪝 Xahau Network (Hook-Enabled)</p>
+                <div className="mb-2">
+                  <p className="text-xs text-muted-foreground mb-1 px-2">🪝 Xahau Network (Hook-Enabled)</p>
                   <div className="relative">
                     <button
                       onClick={() => setShowAssetDropdown(!showAssetDropdown)}
-                      className="w-full rounded-xl py-3 px-4 font-bold text-left bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 hover:border-purple-500 transition-all flex items-center justify-between"
+                      className="w-full rounded-xl py-2 px-3 font-bold text-left bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 hover:border-purple-500 transition-all flex items-center justify-between text-sm"
                     >
                       <span>{selectedAsset.label}</span>
                       <span className="text-xl">▼</span>
@@ -859,7 +866,7 @@ export default function Chess() {
                               setSelectedAssetIndex(assets.indexOf(asset))
                               setShowAssetDropdown(false)
                             }}
-                            className="w-full px-4 py-3 text-left hover:bg-muted transition-all"
+                            className="w-full px-3 py-2 text-left hover:bg-muted transition-all text-sm"
                           >
                             {asset.label}
                           </button>
@@ -869,24 +876,23 @@ export default function Chess() {
                   </div>
                 </div>
 
-                {/* XRPL Bridged Section (Coming Soon) */}
                 {xrplAssets.length > 0 && (
                   <div className="opacity-50">
-                    <p className="text-xs text-muted-foreground mb-2 px-2">🌉 XRPL Bridged (Coming Soon)</p>
-                    <div className="rounded-xl py-3 px-4 border border-border bg-muted/30 text-muted-foreground">
+                    <p className="text-xs text-muted-foreground mb-1 px-2">🌉 XRPL Bridged (Coming Soon)</p>
+                    <div className="rounded-xl py-2 px-3 border border-border bg-muted/30 text-muted-foreground text-xs">
                       PLX, FUZZY (Not yet available)
                     </div>
                   </div>
                 )}
                 
-                <div className="grid grid-cols-4 gap-2 mt-3">
+                <div className="grid grid-cols-4 gap-2 mt-2">
                   {feeTiers.map((tier) => (
                     <motion.button
                       key={tier}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setSelectedFee(tier)}
-                      className={`rounded-xl py-4 font-bold transition-all ${
+                      className={`rounded-xl py-3 font-bold transition-all text-sm ${
                         selectedFee === tier
                           ? "bg-primary text-primary-foreground shadow-lg"
                           : "border border-border bg-muted/50 hover:bg-muted"
@@ -903,7 +909,7 @@ export default function Chess() {
                 whileTap={{ scale: 0.98 }}
                 disabled={loadingPay || selectedAsset.network !== "xahau"}
                 onClick={handlePayFeeHook}
-                className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-4 font-bold text-white text-base md:text-lg shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-3 font-bold text-white text-sm md:text-base shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {loadingPay 
                   ? "Processing..." 
@@ -914,18 +920,18 @@ export default function Chess() {
               </motion.button>
 
               {selectedAsset.network === "xahau" && (
-                <p className="text-xs text-center text-muted-foreground -mt-2">
+                <p className="text-xs text-center text-muted-foreground -mt-1">
                   💡 Powered by Xahau Hooks - Trustless prize distribution
                 </p>
               )}
 
-              <div className="text-center text-muted-foreground font-medium my-2">Or</div>
+              <div className="text-center text-muted-foreground font-medium text-sm my-1">Or</div>
 
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleFreePlay}
-                className="w-full rounded-2xl bg-card border-2 border-border py-4 font-bold text-foreground text-base md:text-lg shadow-xl hover:shadow-muted/30 transition-all"
+                className="w-full rounded-2xl bg-card border-2 border-border py-3 font-bold text-foreground text-sm md:text-base shadow-xl hover:shadow-muted/30 transition-all"
               >
                 🚀 FREE PLAY vs BOT
               </motion.button>
@@ -933,23 +939,23 @@ export default function Chess() {
           )}
         </div>
 
-        <p className="mt-6 text-center text-sm text-muted-foreground">
+        <p className="mt-4 text-center text-xs text-muted-foreground">
           Powered by{" "}
           <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary transition-colors">
             xMerch
           </a>
         </p>
 
-        <div className="mt-5 flex items-center justify-center gap-6">
+        <div className="mt-3 flex items-center justify-center gap-6">
           <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="3" y="6" width="18" height="13" rx="2" />
               <path d="M3 10h18" />
               <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
             </svg>
           </a>
           <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="5" r="2" />
               <circle cx="5" cy="19" r="2" />
               <circle cx="19" cy="19" r="2" />
@@ -957,7 +963,7 @@ export default function Chess() {
             </svg>
           </a>
           <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="4" y="4" width="16" height="16" rx="2" />
               <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
             </svg>
