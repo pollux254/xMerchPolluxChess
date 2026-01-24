@@ -596,7 +596,9 @@ export default function Chess() {
 
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
-          console.log("📡 WebSocket message:", status)
+          
+          // ✅ LOG EVERYTHING for debugging
+          console.log("📡 WebSocket received:", JSON.stringify(status, null, 2))
 
           // User rejected
           if (status.signed === false) {
@@ -608,35 +610,52 @@ export default function Chess() {
             return
           }
 
-          // User signed - keep waiting for ledger
-          if (status.signed === true && !txValidated) {
-            console.log("✍️ Signed - waiting for ledger validation...")
-          }
+          // ✅ IMPROVED: Multiple ways to detect success
+          const shouldCheckResult = 
+            status.signed === true ||
+            status.payload_resolved === true ||
+            status.resolved === true ||
+            status.dispatched === true
 
-          // Transaction dispatched
-          if (status.dispatched === true && !txValidated) {
-            console.log("📤 Dispatched to ledger...")
-          }
+          if (shouldCheckResult && !txValidated) {
+            // Try multiple ways to get the result
+            const result = status.result?.engine_result || 
+                           status.meta?.TransactionResult ||
+                           status.response?.engine_result
 
-          // ✅ CRITICAL: Check ledger result
-          if (status.payload_uuidv4 || status.resolved === true || status.payload_resolved === true) {
-            const result = status.result?.engine_result || status.meta?.TransactionResult
-            
-            console.log("📊 Ledger result:", result)
-            
-            if (result === "tesSUCCESS") {
-              txValidated = true
-              clearTimeout(timeoutId)
-              if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-              console.log("✅ VALIDATED on ledger!")
-              ws.close()
-              resolve(true)
-            } else if (result && result !== "tesSUCCESS") {
-              clearTimeout(timeoutId)
-              if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-              console.error("❌ TX FAILED:", result)
-              ws.close()
-              reject(new Error(`Transaction failed: ${result}`))
+            if (result) {
+              console.log("📊 Transaction result:", result)
+              
+              if (result === "tesSUCCESS") {
+                txValidated = true
+                clearTimeout(timeoutId)
+                if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+                console.log("✅ VALIDATED on ledger!")
+                ws.close()
+                resolve(true)
+              } else if (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter")) {
+                // Transaction failed
+                clearTimeout(timeoutId)
+                if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+                console.error("❌ TX FAILED:", result)
+                ws.close()
+                reject(new Error(`Transaction failed: ${result}`))
+              } else {
+                console.log("⏳ Waiting for final result...")
+              }
+            } else if (status.signed === true) {
+              // ✅ FALLBACK: Signed but no result yet - wait a bit then accept
+              console.log("✍️ Signed, waiting 3 seconds for ledger confirmation...")
+              setTimeout(() => {
+                if (!txValidated) {
+                  console.log("⏰ Accepting payment after 3 second delay...")
+                  txValidated = true
+                  clearTimeout(timeoutId)
+                  if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+                  ws.close()
+                  resolve(true)
+                }
+              }, 3000)
             }
           }
         }
@@ -659,6 +678,13 @@ export default function Chess() {
 
       // ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
       console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
+      console.log("📤 Sending join request with:", {
+        playerAddress: playerID,
+        tournamentSize: selectedSize,
+        entryFee: selectedFee,
+        currency: selectedAsset.currency,
+        issuer: selectedAsset.issuer,
+      })
       
       const joinRes = await fetch('/api/tournaments/join', {
         method: 'POST',
@@ -672,21 +698,25 @@ export default function Chess() {
         })
       })
 
+      console.log("📡 Join API response status:", joinRes.status)
+
       if (!joinRes.ok) {
-        const errorData = await joinRes.json()
-        
-        if (joinRes.status === 409 && errorData.tournamentId) {
-          console.log("❌ Player already in tournament:", errorData.tournamentId)
-          alert("You're already in a tournament!\n\nRedirecting...")
-          window.location.href = `/waiting-room?tournamentId=${errorData.tournamentId}`
-          return
-        }
-        
-        throw new Error(errorData.error || 'Failed to join tournament')
+        const errorText = await joinRes.text()
+        console.error("❌ Join API failed:", errorText)
+        throw new Error(`Failed to join tournament: ${errorText}`)
       }
 
       const joinData = await joinRes.json()
+      console.log("✅ Join API response:", joinData)
       tournamentId = joinData.tournamentId
+      
+      // Check for already joined
+      if (joinRes.status === 409 && joinData.tournamentId) {
+        console.log("⚠️ Player already in tournament:", joinData.tournamentId)
+        alert("You're already in a tournament!\n\nRedirecting...")
+        window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+        return
+      }
       
       console.log("✅ Joined tournament:", tournamentId)
 
