@@ -132,7 +132,7 @@ export default function Home() {
                 whileTap={{ scale: 0.95 }}
                 className="w-full px-12 py-6 text-2xl md:text-3xl font-bold rounded-2xl bg-primary text-primary-foreground shadow-2xl hover:shadow-primary/30 transition-shadow"
               >
-                ♟️ Play & Wager Now
+                ♟️ Play & Win Prizes!
               </motion.button>
             </Link>
             <motion.button
@@ -141,14 +141,14 @@ export default function Home() {
               onClick={() => setIsModalOpen(true)}
               className="px-10 py-5 text-lg md:text-xl font-medium rounded-2xl border-2 border-primary bg-transparent hover:bg-primary/10 transition-colors"
             >
-              Support the Protocol
+              Support Development
             </motion.button>
           </motion.div>
           <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1 }}
-            className="mt-8 md:mt-12 text-sm md:text-base text-muted-foreground"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.8 }}
+            className="mt-8 text-lg text-muted-foreground"
           >
             Powered by xMerch • Trustless on Xahau Network
           </motion.p>
