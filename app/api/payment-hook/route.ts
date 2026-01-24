@@ -10,17 +10,25 @@ export async function POST(req: NextRequest) {
     console.log('  Destination:', destination)
     console.log('  Network:', network)
     
+    // Use XUMM variables (they work) with XAMAN fallback
+    const API_KEY = process.env.XUMM_API_KEY || process.env.XAMAN_API_KEY
+    const API_SECRET = process.env.XUMM_API_SECRET || process.env.XAMAN_API_SECRET
+    
     // CRITICAL: Check environment variables exist
-    if (!process.env.XAMAN_API_KEY) {
-      console.error('❌ XAMAN_API_KEY is not set in environment variables!')
+    if (!API_KEY) {
+      console.error('❌ API_KEY is not set in environment variables!')
+      console.error('  XUMM_API_KEY:', !!process.env.XUMM_API_KEY)
+      console.error('  XAMAN_API_KEY:', !!process.env.XAMAN_API_KEY)
       return NextResponse.json(
         { error: 'Xaman API not configured - missing API key' },
         { status: 500 }
       )
     }
     
-    if (!process.env.XAMAN_API_SECRET) {
-      console.error('❌ XAMAN_API_SECRET is not set in environment variables!')
+    if (!API_SECRET) {
+      console.error('❌ API_SECRET is not set in environment variables!')
+      console.error('  XUMM_API_SECRET:', !!process.env.XUMM_API_SECRET)
+      console.error('  XAMAN_API_SECRET:', !!process.env.XAMAN_API_SECRET)
       return NextResponse.json(
         { error: 'Xaman API not configured - missing API secret' },
         { status: 500 }
@@ -28,7 +36,8 @@ export async function POST(req: NextRequest) {
     }
     
     console.log('✅ Xaman credentials present')
-    console.log('  API Key prefix:', process.env.XAMAN_API_KEY.substring(0, 8) + '...')
+    console.log('  API Key prefix:', API_KEY.substring(0, 8) + '...')
+    console.log('  Using:', process.env.XUMM_API_KEY ? 'XUMM_*' : 'XAMAN_*')
     
     const xamanNetwork = network === 'testnet' ? 'Testnet' : 'Mainnet'
     console.log('  Xaman Network:', xamanNetwork)
@@ -63,8 +72,8 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': process.env.XAMAN_API_KEY,
-        'X-API-Secret': process.env.XAMAN_API_SECRET,
+        'X-API-Key': API_KEY,
+        'X-API-Secret': API_SECRET,
       },
       body: JSON.stringify({
         txjson,
