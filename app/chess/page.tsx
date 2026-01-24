@@ -774,10 +774,10 @@ export default function Chess() {
       <div className="w-full max-w-sm md:max-w-md mt-20 md:mt-16 flex flex-col gap-4">
         <div className="text-center mb-4">
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-            PolluxChess Tournament
+            Pollux's Chess Tournament
           </h1>
           <p className="mt-2 text-sm md:text-base text-muted-foreground">
-            Skill-based chess wagering on Xahau
+            Skill-based Chess Game Wagering on Xahau
           </p>
         </div>
 
@@ -827,7 +827,7 @@ export default function Chess() {
               </div>
 
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2 text-center">Tournament Size</p>
+                <p className="text-xs font-medium text-muted-foreground mb-2 text-center">Pick a Size</p>
                 <div className="grid grid-cols-4 gap-2">
                   {sizes.map((size) => (
                     <motion.button
@@ -850,7 +850,7 @@ export default function Chess() {
               {/* Network Toggle */}
               <div className="mt-4">
                 <p className="text-xs font-medium text-muted-foreground mb-2 text-center">
-                  Select Network
+            
                 </p>
                 <div className="grid grid-cols-2 gap-2 bg-muted/30 rounded-xl p-2 border border-border">
                   <motion.button
@@ -881,13 +881,10 @@ export default function Chess() {
               </div>
 
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2 text-center">
-                  Entry Fee Token
-                </p>
                 
                 <div className="mb-2">
                   <p className="text-xs text-muted-foreground mb-1 px-2">
-                    {selectedNetwork === "xahau" ? "🪝 Xahau Network (Hook-Enabled)" : "🌉 XRPL Bridged"}
+                    {selectedNetwork === "xahau" ? "🪝 Xahau Network" : "🌉 XRPL Bridged"}
                   </p>
                   <div className="relative">
                     <button
@@ -951,14 +948,14 @@ export default function Chess() {
                 {loadingPay 
                   ? "Processing..." 
                   : selectedAsset.network === "xahau"
-                    ? `🪝 Join Tournament (${selectedFee} ${selectedAsset.currency})`
-                    : "🔒 Token Not Supported Yet"
+                    ? `🪝 Submit!  (${selectedFee} ${selectedAsset.currency})`
+                    : "🔒 Coming soon"
                 }
               </motion.button>
 
               {selectedAsset.network === "xahau" && (
                 <p className="text-xs text-center text-muted-foreground -mt-1">
-                  💡 Powered by Xahau Hooks - Trustless prize distribution
+                  💡 Powered by Xahau Hooks - Trustless, Permissionless prize distribution
                 </p>
               )}
 
@@ -970,43 +967,11 @@ export default function Chess() {
                 onClick={handleFreePlay}
                 className="w-full rounded-2xl bg-card border-2 border-border py-3 font-bold text-foreground text-sm md:text-base shadow-xl hover:shadow-muted/30 transition-all"
               >
-                🚀 FREE PLAY vs BOT
+                🚀 FREE PLAY vs BOT, WIN FREE NFT's
               </motion.button>
             </>
           )}
         </div>
-
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Powered by{" "}
-          <a href="https://xmerch.app" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary transition-colors">
-            xMerch
-          </a>
-        </p>
-
-        <div className="mt-3 flex items-center justify-center gap-6">
-          <a href="https://xaman.app" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="6" width="18" height="13" rx="2" />
-              <path d="M3 10h18" />
-              <circle cx="7" cy="14" r="1.5" fill="currentColor" stroke="none" />
-            </svg>
-          </a>
-          <a href="https://xahau.network" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="5" cy="19" r="2" />
-              <circle cx="19" cy="19" r="2" />
-              <path d="M12 7v4m0 0l-5 6m5-6l5 6" />
-            </svg>
-          </a>
-          <a href="https://evernode.org" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors">
-            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="4" y="4" width="16" height="16" rx="2" />
-              <path d="M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
-            </svg>
-          </a>
-        </div>
-      </div>
 
       {playerID && (
         <SettingsModal 
@@ -1023,6 +988,7 @@ export default function Chess() {
           walletAddress={playerID}
         />
       )}
+      </div>
     </div>
   )
 }
