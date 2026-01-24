@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
+import type { Square } from "react-chessboard/dist/chessboard/types"
 import { motion } from "framer-motion"
 import { Moon, Sun, Monitor } from "lucide-react"
 import { getSupabaseClient } from "@/lib/supabase-client"
@@ -360,7 +361,7 @@ function GameMultiplayerContent() {
     }, 3000)
   }
 
-  function onDrop(sourceSquare: string, targetSquare: string): boolean {
+  function onDrop(sourceSquare: Square, targetSquare: Square): boolean {
     const isMyTurn = (game.turn() === 'w' && myColor === 'white') || 
                      (game.turn() === 'b' && myColor === 'black')
     
@@ -673,9 +674,14 @@ function GameMultiplayerContent() {
           <div className="lg:col-span-1">
             <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl p-4">
               <Chessboard 
-                position={gamePosition} 
-                onPieceDrop={onDrop} 
-                boardOrientation={myColor === 'white' ? 'white' : 'black'} 
+                id="multiplayer-board"
+                position={gamePosition}
+                onPieceDrop={onDrop}
+                boardOrientation={myColor === 'white' ? 'white' : 'black'}
+                customBoardStyle={{
+                  borderRadius: '8px',
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                }}
               />
               
               <div className="mt-4 text-center">
