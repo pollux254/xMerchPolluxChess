@@ -360,7 +360,9 @@ function GameMultiplayerContent() {
     }, 3000)
   }
 
-  function onDrop(sourceSquare: string, targetSquare: string): boolean {
+  function onDrop({ sourceSquare, targetSquare }: { piece: any; sourceSquare: string; targetSquare: string | null }): boolean {
+    if (!targetSquare) return false
+    
     const isMyTurn = (game.turn() === 'w' && myColor === 'white') || 
                      (game.turn() === 'b' && myColor === 'black')
     
@@ -673,12 +675,10 @@ function GameMultiplayerContent() {
           <div className="lg:col-span-1">
             <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl p-4">
               <Chessboard 
-                position={gamePosition}
-                onPieceDrop={onDrop}
-                boardOrientation={myColor === 'white' ? 'white' : 'black'}
-                customBoardStyle={{
-                  borderRadius: '8px',
-                  boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+                options={{
+                  position: gamePosition,
+                  onPieceDrop: onDrop,
+                  boardOrientation: myColor === 'white' ? 'white' : 'black',
                 }}
               />
               
