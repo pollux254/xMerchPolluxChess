@@ -618,29 +618,61 @@ export default function Chess() {
       const ws = new WebSocket(websocketUrl)
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
+        let txValidated = false
+        
         const timeoutId = setTimeout(() => {
           console.log("⏱️ Payment timeout (5 minutes)")
           ws.close()
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-          reject(new Error("Payment request timed out"))
+          if (!txValidated) {
+            reject(new Error("Payment request timed out"))
+          }
         }, 5 * 60 * 1000)
 
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
-          console.log("📡 Payment status update:", status)
+          console.log("📡 WebSocket message:", status)
 
-          if (status.signed === true) {
+          // User rejected
+          if (status.signed === false) {
             clearTimeout(timeoutId)
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-            console.log("✅ Payment CONFIRMED!")
-            ws.close()
-            resolve(true)
-          } else if (status.signed === false) {
-            clearTimeout(timeoutId)
-            if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-            console.log("❌ Payment REJECTED by user")
+            console.log("❌ Payment REJECTED")
             ws.close()
             reject(new Error("Payment rejected by user"))
+            return
+          }
+
+          // User signed - keep waiting for ledger
+          if (status.signed === true && !txValidated) {
+            console.log("✍️ Signed - waiting for ledger validation...")
+          }
+
+          // Transaction dispatched
+          if (status.dispatched === true && !txValidated) {
+            console.log("📤 Dispatched to ledger...")
+          }
+
+          // CRITICAL: Check ledger result
+          if (status.payload_uuidv4 || status.resolved === true || status.payload_resolved === true) {
+            const result = status.result?.engine_result || status.meta?.TransactionResult
+            
+            console.log("📊 Ledger result:", result)
+            
+            if (result === "tesSUCCESS") {
+              txValidated = true
+              clearTimeout(timeoutId)
+              if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+              console.log("✅ VALIDATED on ledger!")
+              ws.close()
+              resolve(true)
+            } else if (result && result !== "tesSUCCESS") {
+              clearTimeout(timeoutId)
+              if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+              console.error("❌ TX FAILED:", result)
+              ws.close()
+              reject(new Error(`Transaction failed: ${result}`))
+            }
           }
         }
 
@@ -648,7 +680,9 @@ export default function Chess() {
           console.error("❌ WebSocket error:", error)
           clearTimeout(timeoutId)
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-          reject(new Error("Connection error"))
+          if (!txValidated) {
+            reject(new Error("Connection error"))
+          }
         }
 
         ws.onclose = () => {
@@ -656,7 +690,7 @@ export default function Chess() {
         }
       })
 
-      // WAIT for payment to be confirmed before redirecting
+      // WAIT for ledger validation before redirecting
       await paymentPromise
 
       // Step 5: ONLY redirect if payment was successfully confirmed
@@ -691,12 +725,23 @@ export default function Chess() {
         errorMessage = "Payment was cancelled"
       } else if (err.message.includes("timed out")) {
         errorMessage = "Payment request expired"
+      } else if (err.message.includes("terPRE_SEQ") || err.message.includes("tefPAST_SEQ")) {
+        errorMessage = "Transaction sequence error - please try again"
+      } else if (err.message.includes("terINSUF_FEE")) {
+        errorMessage = "Insufficient XAH for transaction fees"
+      } else if (err.message.includes("tecUNFUNDED") || err.message.includes("tecINSUFF")) {
+        errorMessage = "Insufficient XAH balance"
+      } else if (err.message.includes("tec")) {
+        errorMessage = "Transaction error - please check your balance"
       } else if (err.message.includes("Connection error")) {
         errorMessage = "Connection error - please try again"
       } else if (err.message.includes("Popup blocked")) {
         errorMessage = "Popup was blocked - please allow popups"
       } else if (err.message.includes("cancelled by user")) {
         errorMessage = "Payment was cancelled"
+      } else if (err.message.includes("failed:")) {
+        const match = err.message.match(/failed: (\w+)/)
+        errorMessage = match ? `Transaction failed: ${match[1]}` : err.message
       } else {
         errorMessage = err.message
       }
