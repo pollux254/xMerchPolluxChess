@@ -94,7 +94,6 @@ export default function Chess() {
 
   // NEW: Reset asset selection when network changes
   useEffect(() => {
-    // Find first asset of the selected network
     const firstIndex = assets.findIndex(a => a.network === selectedNetwork)
     if (firstIndex !== -1) {
       setSelectedAssetIndex(firstIndex)
@@ -202,27 +201,524 @@ export default function Chess() {
   }
 
   async function handleLogin() {
-    // ... (unchanged, full logic preserved)
-    // Your existing handleLogin code here (omitted for brevity in this diff)
+    try {
+      setLoadingLogin(true)
+
+      const returnUrl = `${window.location.origin}/chess`
+
+      const res = await fetch("/api/auth/xaman/create-signin/xahau-signin", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-xahau-network": network
+        },
+        body: JSON.stringify({ returnUrl }),
+      })
+
+      if (!res.ok) {
+        console.error("Failed to create signin payload:", await res.text())
+        alert("Error preparing signin.")
+        return
+      }
+
+      const data = await res.json()
+      const { nextUrl, websocketUrl, uuid } = data
+
+      if (!nextUrl || !websocketUrl || !uuid) {
+        alert("Missing Xaman details")
+        return
+      }
+
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      
+      console.log("📱 Device detection:", isMobile ? "MOBILE" : "DESKTOP")
+      
+      sessionStorage.setItem("waitingForLogin", "true")
+      
+      let signinPopup: Window | null = null
+      let popupCheckInterval: NodeJS.Timeout | null = null
+      let timeoutId: NodeJS.Timeout | null = null
+      
+      if (isMobile) {
+        console.log("📱 Mobile detected - Direct redirect to Xaman app")
+        window.location.href = nextUrl
+      } else {
+        console.log("💻 Desktop detected - Opening popup")
+        signinPopup = window.open(nextUrl, "_blank", "width=480,height=720")
+        
+        if (!signinPopup) {
+          alert("Popup blocked. Please allow popups for Xaman.")
+          setLoadingLogin(false)
+          return
+        }
+
+        popupCheckInterval = setInterval(() => {
+          if (signinPopup && signinPopup.closed) {
+            console.log("Signin popup was closed manually")
+            clearInterval(popupCheckInterval!)
+            if (timeoutId) clearTimeout(timeoutId)
+            ws.close()
+            setLoadingLogin(false)
+          }
+        }, 500)
+
+        timeoutId = setTimeout(() => {
+          if (signinPopup && !signinPopup.closed) {
+            console.log("Signin popup timeout - auto closing")
+            signinPopup.close()
+          }
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          ws.close()
+          setLoadingLogin(false)
+          alert("Sign-in request expired. Please try again.")
+        }, 5 * 60 * 1000)
+      }
+
+      const ws = new WebSocket(websocketUrl)
+      ws.onmessage = async (event) => {
+        const status = JSON.parse(event.data)
+
+        if (status.signed === true) {
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          if (timeoutId) clearTimeout(timeoutId)
+          
+          if (signinPopup && !signinPopup.closed) {
+            signinPopup.close()
+          }
+          
+          try {
+            const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ uuid }),
+            })
+
+            if (!payloadRes.ok) throw new Error(await payloadRes.text())
+            const payloadData = await payloadRes.json()
+
+            if (payloadData.account) {
+              const walletAddress = payloadData.account
+
+              console.log("Creating Supabase session for wallet:", walletAddress)
+              
+              const { data: authData, error: authError } = await supabase.auth.signInAnonymously({
+                options: {
+                  data: {
+                    wallet_address: walletAddress
+                  }
+                }
+              })
+
+              if (authError) {
+                console.error("Supabase auth error:", authError)
+                setPlayerID(walletAddress)
+                localStorage.setItem("playerID", walletAddress)
+                sessionStorage.removeItem("waitingForLogin")
+                
+                getOrCreateProfile(walletAddress)
+                
+                alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+              } else {
+                console.log("✅ Supabase session created:", authData.session?.user.id)
+                console.log("✅ Wallet stored in metadata:", authData.session?.user.user_metadata.wallet_address)
+                
+                setPlayerID(walletAddress)
+                localStorage.setItem("playerID", walletAddress)
+                sessionStorage.removeItem("waitingForLogin")
+                
+                getOrCreateProfile(walletAddress)
+                
+                alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+              }
+            }
+          } catch (err) {
+            console.error("Failed to get account:", err)
+            alert("Signed, but couldn't retrieve address.")
+          }
+          ws.close()
+        } else if (status.signed === false || status.expired) {
+          if (popupCheckInterval) clearInterval(popupCheckInterval)
+          if (timeoutId) clearTimeout(timeoutId)
+          
+          if (signinPopup && !signinPopup.closed) {
+            signinPopup.close()
+          }
+          
+          sessionStorage.removeItem("waitingForLogin")
+          alert(status.signed === false ? "Sign-in rejected." : "Sign-in expired.")
+          ws.close()
+          setLoadingLogin(false)
+        }
+      }
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        
+        if (popupCheckInterval) clearInterval(popupCheckInterval)
+        if (timeoutId) clearTimeout(timeoutId)
+        
+        if (signinPopup && !signinPopup.closed) {
+          signinPopup.close()
+        }
+        ws.close()
+        setLoadingLogin(false)
+      }
+
+      ws.onclose = () => {
+        console.log("WebSocket closed")
+        
+        if (popupCheckInterval) clearInterval(popupCheckInterval)
+        if (timeoutId) clearTimeout(timeoutId)
+      }
+    } catch (err) {
+      console.error("Login error:", err)
+      sessionStorage.removeItem("waitingForLogin")
+      alert("Login failed.")
+    } finally {
+      setLoadingLogin(false)
+    }
   }
 
   const handleDisconnect = async () => {
-    // ... (unchanged, full logic preserved)
+    if (!playerID) {
+      localStorage.removeItem("playerID")
+      sessionStorage.clear()
+      await supabase.auth.signOut()
+      window.location.reload()
+      return
+    }
+
+    let playerTournament = existingTournament
+
+    if (!playerTournament) {
+      try {
+        const checkRes = await fetch(`/api/tournaments/check-player?address=${playerID}`)
+        if (checkRes.ok) {
+          const checkData = await checkRes.json()
+          if (checkData.inTournament) {
+            playerTournament = {
+              id: checkData.tournamentId,
+              status: checkData.status
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check tournament status:", err)
+      }
+    }
+
+    if (playerTournament?.status === "in_progress" || playerTournament?.status === "in-progress") {
+      const confirmLeave = confirm(
+        "⚠️ You're in an active game! Logging out now will FORFEIT the match (you lose).\n\nAre you sure you want to logout and forfeit?"
+      )
+      if (!confirmLeave) {
+        return
+      }
+      
+      try {
+        const forfeitRes = await fetch("/api/tournaments/forfeit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerAddress: playerID,
+            tournamentId: playerTournament.id,
+            reason: "Player logged out during game"
+          })
+        })
+        
+        if (!forfeitRes.ok) {
+          console.error("Failed to process forfeit")
+          alert("Warning: Failed to register forfeit. Please contact support.")
+        } else {
+          alert("Game forfeited. Your opponent wins.")
+        }
+      } catch (err) {
+        console.error("Forfeit error:", err)
+        alert("Warning: Failed to register forfeit. Please contact support.")
+      }
+    } else if (playerTournament?.status === "waiting") {
+      const confirmLeave = confirm(
+        "You're in a waiting room. Logging out will remove you from the tournament.\n\nContinue logout?"
+      )
+      if (!confirmLeave) {
+        return
+      }
+      
+      try {
+        const leaveRes = await fetch("/api/tournaments/leave", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerAddress: playerID,
+            tournamentId: playerTournament.id
+          })
+        })
+        
+        if (!leaveRes.ok) {
+          console.error("Failed to leave tournament")
+        } else {
+          console.log("✅ Successfully left tournament")
+        }
+      } catch (err) {
+        console.error("Failed to leave tournament:", err)
+      }
+    }
+    
+    if (playerID) {
+      console.log("🧹 Running cleanup on logout...")
+      try {
+        await cleanupPlayerTournaments(playerID)
+      } catch (err) {
+        console.error("Cleanup failed:", err)
+      }
+    }
+    
+    setPlayerID(null)
+    setExistingTournament(null)
+    
+    localStorage.removeItem("playerID")
+    sessionStorage.clear()
+    
+    await supabase.auth.signOut()
+    
+    console.log("🚪 Logout complete - all state cleared")
+    
+    alert("Wallet disconnected successfully!")
+    window.location.reload()
   }
 
   async function handlePayFeeHook() {
-    // ... (unchanged, full logic preserved - it will use selectedAsset which now respects the network toggle)
+    if (!playerID) {
+      alert("Please connect your wallet first!")
+      return
+    }
+
+    if (!hookAddress) {
+      alert(`No Hook address configured for ${network.toUpperCase()}`)
+      return
+    }
+
+    if (selectedAsset.network !== "xahau") {
+      alert("This token is not yet supported. Please use XAH or EVR.")
+      return
+    }
+
+    try {
+      setLoadingPay(true)
+      console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
+      console.log(`🪝 Hook Address: ${hookAddress}`)
+
+      // Step 1: Join tournament first
+      console.log("🔍 Finding or creating tournament...")
+      const joinRes = await fetch('/api/tournaments/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerAddress: playerID,
+          tournamentSize: selectedSize,
+          entryFee: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer,
+        })
+      })
+
+      if (!joinRes.ok) {
+        const errorData = await joinRes.json()
+        
+        if (joinRes.status === 409 && errorData.tournamentId) {
+          console.log("❌ Player already in tournament:", errorData.tournamentId)
+          alert("You're already in a tournament!\n\nRedirecting...")
+          window.location.href = `/waiting-room?tournamentId=${errorData.tournamentId}`
+          return
+        }
+        
+        throw new Error(errorData.error || 'Failed to join tournament')
+      }
+
+      const joinData = await joinRes.json()
+      const tournamentId = joinData.tournamentId
+      
+      console.log("✅ Tournament ready:", tournamentId)
+
+      // Step 2: Create payment payload
+      const memoData = {
+        action: "join",
+        tournament: tournamentId,
+        player: playerID,
+        network: network
+      }
+
+      console.log("📤 Creating Xaman payload for Hook payment...")
+      
+      const payloadRes = await fetch("/api/payment-hook", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-xahau-network": network
+        },
+        body: JSON.stringify({ 
+          amount: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer,
+          destination: hookAddress,
+          memo: JSON.stringify(memoData),
+          network: network
+        })
+      })
+
+      if (!payloadRes.ok) {
+        const errorData = await payloadRes.json()
+        throw new Error(`Payment creation failed: ${errorData.error || 'Unknown error'}`)
+      }
+
+      const payloadData = await payloadRes.json()
+      const { uuid, nextUrl, websocketUrl } = payloadData
+
+      if (!uuid || !nextUrl || !websocketUrl) {
+        throw new Error("Missing Xaman payload data")
+      }
+
+      console.log("✅ Xaman payload created:", uuid)
+
+      // Step 3: Open Xaman
+      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
+      
+      let xamanPopup: Window | null = null
+      
+      if (isMobileDevice) {
+        console.log("📱 Mobile: Using deep link")
+        const deepLink = `xumm://xumm.app/sign/${uuid}`
+        window.location.href = deepLink
+      } else {
+        console.log("💻 Desktop - Opening popup")
+        xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
+        
+        if (!xamanPopup) {
+          alert("Popup blocked! Please allow popups for Xaman.")
+          setLoadingPay(false)
+          return
+        }
+      }
+
+      // Step 4: CRITICAL - Wait for payment confirmation via WebSocket
+      const ws = new WebSocket(websocketUrl)
+      
+      const paymentPromise = new Promise<boolean>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          ws.close()
+          if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+          reject(new Error("Payment request timed out"))
+        }, 5 * 60 * 1000)
+
+        ws.onmessage = (event) => {
+          const status = JSON.parse(event.data)
+          console.log("📡 Payment status:", status)
+
+          if (status.signed === true) {
+            clearTimeout(timeoutId)
+            if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+            console.log("✅ Payment confirmed!")
+            ws.close()
+            resolve(true) // Payment successful
+          } else if (status.signed === false) {
+            clearTimeout(timeoutId)
+            if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+            ws.close()
+            reject(new Error("Payment rejected by user"))
+          }
+        }
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error)
+          clearTimeout(timeoutId)
+          if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+          reject(new Error("Connection error"))
+        }
+      })
+
+      // Wait for payment confirmation
+      await paymentPromise
+
+      // Step 5: ONLY redirect if payment was successful
+      console.log("✅ Payment confirmed - redirecting to waiting room...")
+      setLoadingPay(true)
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      window.location.href = `/waiting-room?tournamentId=${tournamentId}`
+
+    } catch (err: any) {
+      console.error("❌ Payment error:", err)
+      
+      // Show user-friendly error message
+      let errorMessage = "Payment failed"
+      if (err.message.includes("rejected")) {
+        errorMessage = "Payment was cancelled"
+      } else if (err.message.includes("timed out")) {
+        errorMessage = "Payment request expired"
+      } else if (err.message.includes("Connection error")) {
+        errorMessage = "Connection error - please try again"
+      } else {
+        errorMessage = err.message
+      }
+      
+      alert(`❌ ${errorMessage}\n\nPlease try again or contact support.`)
+      
+      // CRITICAL: Stay on current page, don't redirect
+      setLoadingPay(false)
+    }
   }
 
   const handleFreePlay = async () => {
-    // ... (unchanged, full logic preserved)
+    if (!playerID) {
+      alert("Please connect your wallet first!")
+      return
+    }
+
+    try {
+      console.log(`🎯 [Matchmaking] Starting matchmaking for player: ${playerID}`)
+      
+      await getOrCreateProfile(playerID)
+      
+      const stats = await getPlayerStats(playerID)
+      
+      let botRank: number
+      
+      if (stats) {
+        console.log(`📊 [Matchmaking] Player stats:`, {
+          bot_elo: stats.bot_elo,
+          wins: stats.bot_wins,
+          losses: stats.bot_losses,
+          draws: stats.bot_draws
+        })
+        
+        botRank = getRandomBotRankForPlayer(stats.bot_elo)
+        
+        console.log(`🤖 [Matchmaking] Player ELO: ${stats.bot_elo}`)
+        console.log(`🤖 [Matchmaking] Generated Bot Rank: ${botRank}`)
+        console.log(`🤖 [Matchmaking] Range: ${Math.max(1, stats.bot_elo - 10)} - ${Math.min(1000, stats.bot_elo + 10)}`)
+      } else {
+        botRank = 100
+        console.warn('⚠️ [Matchmaking] No stats found, using default botRank:', botRank)
+      }
+      
+      const gameUrl = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
+      console.log(`🔗 [Matchmaking] Redirecting to:`, gameUrl)
+      
+      window.location.href = gameUrl
+      
+    } catch (error) {
+      console.error('❌ [Matchmaking] Error during matchmaking:', error)
+      const defaultBotRank = 100
+      console.log(`🔗 [Matchmaking] Error fallback - using botRank: ${defaultBotRank}`)
+      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${defaultBotRank}`
+    }
   }
 
-  // Filter assets dynamically based on selected network
+  // Filter assets by network for display
   const filteredAssets = assets.filter(a => a.network === selectedNetwork)
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground transition-colors duration-300 flex flex-col items-center justify-center p-4">
+
       <div className="fixed top-20 left-4 z-50">
         <button
           onClick={toggleNetwork}
@@ -272,12 +768,10 @@ export default function Chess() {
         </div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="w-full max-w-sm md:max-w-md mt-16 md:mt-0 rounded-3xl border border-border bg-card/90 backdrop-blur-xl p-4 md:p-6 shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain"
-      >
+      {/* ────────────────────────────────────────────────
+          Content now directly here — no card/box wrapper
+      ──────────────────────────────────────────────── */}
+      <div className="w-full max-w-sm md:max-w-md mt-20 md:mt-16 flex flex-col gap-4">
         <div className="text-center mb-4">
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
             PolluxChess Tournament
@@ -353,9 +847,7 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* ────────────────────────────────────────────────
-                  NEW: Network Toggle (Xahau vs XRPL Bridged)
-              ──────────────────────────────────────────────── */}
+              {/* Network Toggle */}
               <div className="mt-4">
                 <p className="text-xs font-medium text-muted-foreground mb-2 text-center">
                   Select Network
@@ -452,19 +944,19 @@ export default function Chess() {
                 whileTap={{ scale: 0.98 }}
                 disabled={loadingPay || selectedAsset.network !== selectedNetwork}
                 onClick={handlePayFeeHook}
-                className={`w-full rounded-2xl py-3 font-bold text-white text-sm md:text-base shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
-                  selectedNetwork === "xahau"
-                    ? "bg-gradient-to-r from-purple-600 to-pink-600"
-                    : "bg-gradient-to-r from-blue-600 to-cyan-600"
+                className={`w-full rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 py-3 font-bold text-white text-sm md:text-base shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+                  selectedNetwork === "xrpl-bridged" ? "from-blue-600 to-cyan-600" : ""
                 }`}
               >
                 {loadingPay 
                   ? "Processing..." 
-                  : `🪝 Join Tournament (${selectedFee} ${selectedAsset.currency})`
+                  : selectedAsset.network === "xahau"
+                    ? `🪝 Join Tournament (${selectedFee} ${selectedAsset.currency})`
+                    : "🔒 Token Not Supported Yet"
                 }
               </motion.button>
 
-              {selectedNetwork === "xahau" && (
+              {selectedAsset.network === "xahau" && (
                 <p className="text-xs text-center text-muted-foreground -mt-1">
                   💡 Powered by Xahau Hooks - Trustless prize distribution
                 </p>
@@ -514,7 +1006,7 @@ export default function Chess() {
             </svg>
           </a>
         </div>
-      </motion.div>
+      </div>
 
       {playerID && (
         <SettingsModal 
