@@ -292,13 +292,13 @@ function WaitingRoomContent() {
 
   if (loading) {
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-black via-indigo-950 to-purple-950 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-black to-gray-900 flex items-center justify-center p-4">
         <div className="text-center w-full max-w-sm">
-          <div className="w-20 h-20 border-4 border-cyan-500/70 rounded-full flex items-center justify-center mx-auto mb-6 animate-spin">
+          <div className="w-20 h-20 border-4 border-gray-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-spin">
             <span className="text-3xl">♟️</span>
           </div>
-          <p className="text-2xl font-bold text-cyan-200 mb-2">{loadingMessage}</p>
-          <p className="text-sm text-purple-300/90">Verifying wallet...</p>
+          <p className="text-2xl font-bold text-white mb-2">{loadingMessage}</p>
+          <p className="text-sm text-gray-400">Verifying wallet...</p>
         </div>
       </div>
     )
@@ -306,16 +306,16 @@ function WaitingRoomContent() {
 
   if (!tournament) {
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-black via-indigo-950 to-purple-950 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-black to-gray-900 flex items-center justify-center p-4">
         <div className="text-center w-full max-w-md mx-auto">
-          <p className="text-2xl font-bold text-red-400 mb-2">❌ Tournament Not Found</p>
-          <p className="text-sm text-gray-300/90 mb-6">Tournament may have been cancelled.</p>
+          <p className="text-2xl font-bold text-red-500 mb-2">❌ Tournament Not Found</p>
+          <p className="text-sm text-gray-400 mb-6">Tournament may have been cancelled.</p>
           
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => window.location.href = '/chess'}
-            className="rounded-2xl bg-gradient-to-r from-cyan-600 to-purple-700 px-6 py-3 font-bold text-white shadow-2xl shadow-cyan-500/30 hover:shadow-cyan-400/50 transition-all"
+            className="rounded-xl bg-gray-700 px-6 py-3 font-bold text-white shadow-md hover:bg-gray-600"
           >
             ← Return to Lobby
           </motion.button>
@@ -341,49 +341,49 @@ function WaitingRoomContent() {
   const platformFee = (totalPrizePool * platformFeePercent / 100).toFixed(2)
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-black via-purple-950/80 to-fuchsia-950 text-white flex items-center justify-center p-3">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-black to-gray-900 text-white flex items-center justify-center p-3">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         className="w-full max-w-3xl flex flex-col max-h-[95vh]"
       >
         {/* Header - Fixed */}
-        <h1 className="text-2xl md:text-3xl font-black text-center mb-2 bg-gradient-to-r from-cyan-400 via-purple-400 to-fuchsia-500 bg-clip-text text-transparent flex-shrink-0 drop-shadow-lg">
+        <h1 className="text-2xl md:text-3xl font-bold text-center mb-2 text-white flex-shrink-0">
           Tournament Lobby
         </h1>
 
         {/* Wallet Verified - Fixed */}
         {walletVerified && (
-          <div className="bg-emerald-950/40 backdrop-blur-2xl rounded-xl p-2.5 mb-3 border border-emerald-400/40 text-center flex-shrink-0 shadow-emerald-500/20 shadow-lg">
-            <p className="text-sm font-semibold text-emerald-300">✅ Wallet Verified</p>
+          <div className="bg-gray-800/80 backdrop-blur-md rounded-lg p-2 mb-2 border border-gray-700 text-center flex-shrink-0">
+            <p className="text-xs text-green-500">✅ Wallet Verified</p>
           </div>
         )}
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto pr-1 mb-3 min-h-0 space-y-3">
+        <div className="flex-1 overflow-y-auto pr-1 mb-2 min-h-0">
           {/* Timer */}
-          <div className="bg-gradient-to-br from-orange-950/60 to-amber-950/40 backdrop-blur-2xl rounded-xl p-3 border border-orange-500/50 text-center shadow-orange-500/20 shadow-md">
-            <p className="text-sm text-orange-300/90 font-medium">Expires in</p>
-            <p className={`text-3xl md:text-4xl font-black tracking-tight ${timeRemaining < 60 ? 'text-red-500 animate-pulse' : 'text-orange-400 drop-shadow-md'}`}>
+          <div className="bg-gray-800/80 backdrop-blur-md rounded-lg p-2 mb-2 border border-gray-700 text-center">
+            <p className="text-xs text-gray-400">Expires in</p>
+            <p className={`text-2xl md:text-3xl font-bold ${timeRemaining < 60 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
               {timeString}
             </p>
           </div>
 
           {/* Prize Info */}
-          <div className="bg-gradient-to-br from-gray-950/70 via-purple-950/50 to-fuchsia-950/30 backdrop-blur-2xl rounded-xl p-4 shadow-2xl border border-purple-500/50 shadow-purple-500/20">
-            <div className="grid grid-cols-2 gap-4 text-center">
+          <div className="bg-gray-800/80 backdrop-blur-md rounded-lg p-3 shadow-md border border-gray-700 mb-2">
+            <div className="grid grid-cols-2 gap-3 text-center">
               <div>
-                <p className="text-lg md:text-xl font-bold text-cyan-300">
+                <p className="text-base md:text-lg font-bold text-white">
                   {tournament.entry_fee} {tournament.currency}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Entry Fee</p>
+                <p className="text-xs text-gray-400">Entry Fee</p>
               </div>
               <div>
-                <p className="text-lg md:text-xl font-black text-yellow-400 drop-shadow-md">
+                <p className="text-base md:text-lg font-bold text-white">
                   {winnerPrize} {tournament.currency}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Winner Prize (89%)</p>
-                <p className="text-[10px] text-gray-500 mt-1">
+                <p className="text-xs text-gray-400">Winner Prize (89%)</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
                   Pool: {totalPrizePool} • Fee: {platformFeePercent}%
                 </p>
               </div>
@@ -391,23 +391,23 @@ function WaitingRoomContent() {
           </div>
 
           {/* Player Count */}
-          <div className="bg-gradient-to-br from-gray-950/70 to-purple-950/40 backdrop-blur-2xl rounded-xl p-4 shadow-2xl border border-cyan-500/50 shadow-cyan-600/20">
-            <h2 className="text-lg md:text-xl font-bold mb-3 text-center bg-gradient-to-r from-cyan-300 to-purple-400 bg-clip-text text-transparent">
+          <div className="bg-gray-800/80 backdrop-blur-md rounded-lg p-3 shadow-md border border-gray-700 mb-2">
+            <h2 className="text-base md:text-lg font-bold mb-2 text-center text-white">
               {isFull ? "Tournament Starting!" : "Waiting for Players..."}
             </h2>
             
             <div className="text-center">
-              <p className="text-4xl md:text-5xl font-black text-cyan-400 tracking-tight drop-shadow-lg">
+              <p className="text-3xl md:text-4xl font-bold text-white">
                 {playerCount} / {tournamentSize}
               </p>
-              <p className="text-base text-cyan-200/90 mt-2 font-medium">
+              <p className="text-sm text-gray-400 mt-1">
                 {isFull ? "All ready!" : `${spotsRemaining} spot${spotsRemaining !== 1 ? 's' : ''} left`}
               </p>
             </div>
 
             {isFull && (
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-center mt-3">
-                <p className="text-base font-bold text-emerald-300 animate-pulse tracking-wide">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-center mt-2">
+                <p className="text-sm font-bold text-green-500 animate-pulse">
                   Starting in 2 seconds...
                 </p>
               </motion.div>
@@ -415,40 +415,38 @@ function WaitingRoomContent() {
           </div>
 
           {/* Players List */}
-          <div className="bg-gradient-to-br from-gray-950/70 to-purple-950/30 backdrop-blur-2xl rounded-xl p-4 shadow-2xl border border-purple-500/50 shadow-purple-600/15">
-            <h3 className="text-base md:text-lg font-bold mb-3 bg-gradient-to-r from-cyan-300 to-purple-400 bg-clip-text text-transparent">
-              Players Joined
-            </h3>
+          <div className="bg-gray-800/80 backdrop-blur-md rounded-lg p-3 shadow-md border border-gray-700">
+            <h3 className="text-sm md:text-base font-bold mb-2 text-white">Players Joined</h3>
 
-            <div className="max-h-[22vh] overflow-y-auto pr-1 space-y-2">
+            <div className="max-h-[20vh] overflow-y-auto pr-1 space-y-1">
               {players.map((player, index) => (
                 <motion.div
                   key={player.id}
                   initial={{ x: -50, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: index * 0.08 }}
-                  className="bg-gray-900/60 backdrop-blur-lg rounded-lg p-3 flex items-center justify-between border border-cyan-500/30 hover:border-cyan-400/60 transition-colors"
+                  transition={{ delay: index * 0.1 }}
+                  className="bg-gray-700/50 rounded-md p-2 flex items-center justify-between"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-black text-cyan-400">#{player.player_order}</span>
-                    <span className="font-mono text-sm text-purple-200 tracking-wide">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-bold text-blue-400"># {player.player_order}</span>
+                    <span className="font-mono text-xs text-white">
                       {player.player_address.slice(0, 8)}...{player.player_address.slice(-4)}
                     </span>
                   </div>
-                  <span className="text-xl text-cyan-300/90">♟️</span>
+                  <span className="text-base text-gray-400">👤</span>
                 </motion.div>
               ))}
               
               {Array.from({ length: spotsRemaining }).map((_, index) => (
                 <div
                   key={`empty-${index}`}
-                  className="bg-gray-900/30 rounded-lg p-3 flex items-center justify-between opacity-60 border border-purple-500/20"
+                  className="bg-gray-700/20 rounded-md p-2 flex items-center justify-between opacity-50"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold text-gray-600">#{playerCount + index + 1}</span>
-                    <span className="text-sm text-gray-500">Waiting...</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-bold text-gray-500"># {playerCount + index + 1}</span>
+                    <span className="text-xs text-gray-500">Waiting...</span>
                   </div>
-                  <span className="text-xl opacity-40 text-gray-600">♟️</span>
+                  <span className="text-base opacity-30 text-gray-500">👤</span>
                 </div>
               ))}
             </div>
@@ -457,10 +455,10 @@ function WaitingRoomContent() {
 
         {/* Cancel Button - Fixed at Bottom, Always Visible */}
         <motion.button
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
           onClick={handleCancel}
-          className="w-full rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-fuchsia-700 hover:from-red-600 hover:via-red-500 hover:to-fuchsia-600 py-3.5 font-bold text-white text-base md:text-lg shadow-2xl shadow-red-700/40 hover:shadow-red-600/60 transition-all flex-shrink-0 border border-red-500/40"
+          className="w-full rounded-lg bg-red-600 hover:bg-red-700 py-3 font-bold text-white text-sm md:text-base shadow-md transition-all flex-shrink-0"
         >
           ❌ Cancel & Get Refund
         </motion.button>
@@ -472,12 +470,12 @@ function WaitingRoomContent() {
 export default function WaitingRoom() {
   return (
     <Suspense fallback={
-      <div className="min-h-[100dvh] bg-gradient-to-br from-black via-indigo-950 to-purple-950 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-black to-gray-900 flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="w-20 h-20 border-4 border-cyan-500/70 rounded-full flex items-center justify-center mx-auto mb-6 animate-spin">
+          <div className="w-20 h-20 border-4 border-gray-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-spin">
             <span className="text-3xl">♟️</span>
           </div>
-          <p className="text-2xl font-bold text-cyan-200">Loading...</p>
+          <p className="text-2xl font-bold text-white">Loading...</p>
         </div>
       </div>
     }>
