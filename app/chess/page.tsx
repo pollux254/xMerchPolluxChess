@@ -51,15 +51,15 @@ export default function Chess() {
   const [showProfile, setShowProfile] = useState(false)
   
   const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
-  const [selectedNetwork, setSelectedNetwork] = useState<"xahau" | "xrpl-bridged">("xahau") // ← NEW: network toggle state
+  const [selectedNetwork, setSelectedNetwork] = useState<"xahau" | "xrpl-bridged">("xahau")
 
   const selectedAsset = assets[selectedAssetIndex]
   const feeTiers = [10, 25, 50, 100]
   const sizes = [2, 4, 8, 16]
 
-  // 🪝 HOOK ADDRESSES - Update these with your deployed Hook accounts
+  // 🪝 HOOK ADDRESSES
   const hookAddress = network === 'testnet'
-    ? 'rpbvh5LmrV17BVCu5fAc1ybKev1pFa8evh' // ✅ Alice's testnet Hook account
+    ? 'rpbvh5LmrV17BVCu5fAc1ybKev1pFa8evh'
     : (process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || 'rYOUR_MAINNET_HOOK_ADDRESS')
 
   useEffect(() => {
@@ -92,7 +92,6 @@ export default function Chess() {
     return () => clearInterval(interval)
   }, [playerID])
 
-  // NEW: Reset asset selection when network changes
   useEffect(() => {
     const firstIndex = assets.findIndex(a => a.network === selectedNetwork)
     if (firstIndex !== -1) {
@@ -487,6 +486,7 @@ export default function Chess() {
     window.location.reload()
   }
 
+  // ✅ FIXED: Payment validation with cleanup
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -503,12 +503,14 @@ export default function Chess() {
       return
     }
 
+    let tournamentId: string | null = null // ✅ CRITICAL: Declare here
+
     try {
       setLoadingPay(true)
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
       console.log(`🪝 Hook Address: ${hookAddress}`)
 
-      // Step 1: Join tournament first
+      // Step 1: Join tournament
       console.log("🔍 Finding or creating tournament...")
       const joinRes = await fetch('/api/tournaments/join', {
         method: 'POST',
@@ -536,11 +538,11 @@ export default function Chess() {
       }
 
       const joinData = await joinRes.json()
-      const tournamentId = joinData.tournamentId
+      tournamentId = joinData.tournamentId // ✅ CRITICAL: Assign here
       
       console.log("✅ Tournament ready:", tournamentId)
 
-      // Step 2: Create payment payload
+      // Step 2: Create payment
       const memoData = {
         action: "join",
         tournament: tournamentId,
@@ -548,7 +550,7 @@ export default function Chess() {
         network: network
       }
 
-      console.log("📤 Creating Xaman payload for Hook payment...")
+      console.log("📤 Creating Xaman payload...")
       
       const payloadRes = await fetch("/api/payment-hook", {
         method: "POST",
@@ -595,12 +597,11 @@ export default function Chess() {
         
         if (!xamanPopup) {
           alert("Popup blocked! Please allow popups for Xaman.")
-          setLoadingPay(false)
-          return
+          throw new Error("Popup blocked")
         }
       }
 
-      // Step 4: CRITICAL - Wait for payment confirmation via WebSocket
+      // Step 4: CRITICAL - Wait for payment confirmation
       const ws = new WebSocket(websocketUrl)
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
@@ -619,7 +620,7 @@ export default function Chess() {
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
             console.log("✅ Payment confirmed!")
             ws.close()
-            resolve(true) // Payment successful
+            resolve(true)
           } else if (status.signed === false) {
             clearTimeout(timeoutId)
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
@@ -636,11 +637,10 @@ export default function Chess() {
         }
       })
 
-      // Wait for payment confirmation
       await paymentPromise
 
-      // Step 5: ONLY redirect if payment was successful
-      console.log("✅ Payment confirmed - redirecting to waiting room...")
+      // Step 5: ONLY redirect if successful
+      console.log("✅ Payment confirmed - redirecting...")
       setLoadingPay(true)
       await new Promise(resolve => setTimeout(resolve, 1000))
       window.location.href = `/waiting-room?tournamentId=${tournamentId}`
@@ -648,7 +648,25 @@ export default function Chess() {
     } catch (err: any) {
       console.error("❌ Payment error:", err)
       
-      // Show user-friendly error message
+      // ✅ CRITICAL FIX: Remove from tournament
+      if (tournamentId && playerID) {
+        console.log("🧹 Removing player from tournament...")
+        try {
+          await fetch('/api/tournaments/leave', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              playerAddress: playerID,
+              tournamentId: tournamentId
+            })
+          })
+          console.log("✅ Player removed")
+        } catch (cleanupErr) {
+          console.error("❌ Cleanup failed:", cleanupErr)
+        }
+      }
+      
+      // User-friendly error
       let errorMessage = "Payment failed"
       if (err.message.includes("rejected")) {
         errorMessage = "Payment was cancelled"
@@ -656,13 +674,14 @@ export default function Chess() {
         errorMessage = "Payment request expired"
       } else if (err.message.includes("Connection error")) {
         errorMessage = "Connection error - please try again"
+      } else if (err.message.includes("Popup blocked")) {
+        errorMessage = "Popup was blocked - please allow popups"
       } else {
         errorMessage = err.message
       }
       
       alert(`❌ ${errorMessage}\n\nPlease try again or contact support.`)
       
-      // CRITICAL: Stay on current page, don't redirect
       setLoadingPay(false)
     }
   }
@@ -674,7 +693,7 @@ export default function Chess() {
     }
 
     try {
-      console.log(`🎯 [Matchmaking] Starting matchmaking for player: ${playerID}`)
+      console.log(`🎯 [Matchmaking] Starting for: ${playerID}`)
       
       await getOrCreateProfile(playerID)
       
@@ -683,37 +702,21 @@ export default function Chess() {
       let botRank: number
       
       if (stats) {
-        console.log(`📊 [Matchmaking] Player stats:`, {
-          bot_elo: stats.bot_elo,
-          wins: stats.bot_wins,
-          losses: stats.bot_losses,
-          draws: stats.bot_draws
-        })
-        
         botRank = getRandomBotRankForPlayer(stats.bot_elo)
-        
-        console.log(`🤖 [Matchmaking] Player ELO: ${stats.bot_elo}`)
-        console.log(`🤖 [Matchmaking] Generated Bot Rank: ${botRank}`)
-        console.log(`🤖 [Matchmaking] Range: ${Math.max(1, stats.bot_elo - 10)} - ${Math.min(1000, stats.bot_elo + 10)}`)
+        console.log(`🤖 Player ELO: ${stats.bot_elo}, Bot Rank: ${botRank}`)
       } else {
         botRank = 100
-        console.warn('⚠️ [Matchmaking] No stats found, using default botRank:', botRank)
+        console.warn('⚠️ No stats, using default botRank:', botRank)
       }
       
-      const gameUrl = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
-      console.log(`🔗 [Matchmaking] Redirecting to:`, gameUrl)
-      
-      window.location.href = gameUrl
+      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${botRank}`
       
     } catch (error) {
-      console.error('❌ [Matchmaking] Error during matchmaking:', error)
-      const defaultBotRank = 100
-      console.log(`🔗 [Matchmaking] Error fallback - using botRank: ${defaultBotRank}`)
-      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=${defaultBotRank}`
+      console.error('❌ Matchmaking error:', error)
+      window.location.href = `/gamechessboard?player=${playerID}&fee=0&mode=bot_matchmaking&botRank=100`
     }
   }
 
-  // Filter assets by network for display
   const filteredAssets = assets.filter(a => a.network === selectedNetwork)
 
   return (
@@ -740,7 +743,6 @@ export default function Chess() {
                 onClick={() => setShowProfile(true)}
                 className="rounded-full p-2 border border-border bg-card/80 backdrop-blur-sm hover:bg-muted transition-all shadow-lg text-lg"
                 aria-label="View Profile"
-                title="View your stats"
               >
                 👤
               </button>
@@ -768,9 +770,6 @@ export default function Chess() {
         </div>
       </div>
 
-      {/* ────────────────────────────────────────────────
-          Content now directly here — no card/box wrapper
-      ──────────────────────────────────────────────── */}
       <div className="w-full max-w-sm md:max-w-md mt-20 md:mt-16 flex flex-col gap-4">
         <div className="text-center mb-4">
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
@@ -847,11 +846,7 @@ export default function Chess() {
                 </div>
               </div>
 
-              {/* Network Toggle */}
               <div className="mt-4">
-                <p className="text-xs font-medium text-muted-foreground mb-2 text-center">
-            
-                </p>
                 <div className="grid grid-cols-2 gap-2 bg-muted/30 rounded-xl p-2 border border-border">
                   <motion.button
                     whileHover={{ scale: 1.03 }}
@@ -881,7 +876,6 @@ export default function Chess() {
               </div>
 
               <div>
-                
                 <div className="mb-2">
                   <p className="text-xs text-muted-foreground mb-1 px-2">
                     {selectedNetwork === "xahau" ? "🪝 Xahau Network" : "🌉 XRPL Bridged"}
