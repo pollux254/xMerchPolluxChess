@@ -141,7 +141,7 @@ export default function Home() {
               onClick={() => setIsModalOpen(true)}
               className="px-10 py-5 text-lg md:text-xl font-medium rounded-2xl border-2 border-primary bg-transparent hover:bg-primary/10 transition-colors"
             >
-              Support Development
+              Support xMerch
             </motion.button>
           </motion.div>
           <motion.p
@@ -150,7 +150,7 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.8 }}
             className="mt-8 text-lg text-muted-foreground"
           >
-            Powered by xMerch • Trustless on Xahau Network
+            Trustless on Xahau Network, Powered by xMerch 🚀
           </motion.p>
         </div>
       </section>
@@ -158,7 +158,7 @@ export default function Home() {
       {/* Below-the-Fold Content - Only visible after scrolling on desktop (≥768px) */}
       <div className="w-full bg-muted/10">
         {/* Important Notice */}
-        <section className="max-w-4xl mx-auto px-6 py-16">
+        <section className="max-w-4xl mx-auto px-6 py-8">
           <div className="rounded-2xl border border-red-600/40 bg-red-900/20 p-10 text-center backdrop-blur-sm">
             <h2 className="text-3xl font-bold mb-6">Important Notice</h2>
             <p className="text-lg leading-relaxed">
@@ -171,7 +171,7 @@ export default function Home() {
         </section>
 
         {/* FAQ Accordion */}
-        <section className="max-w-4xl mx-auto px-6 py-12">
+        <section className="max-w-4xl mx-auto px-6 py-6">
           <button
             onClick={() => setIsFAQOpen(!isFAQOpen)}
             className="w-full bg-primary/90 hover:bg-primary text-primary-foreground font-bold py-6 px-8 rounded-2xl flex items-center justify-between text-2xl shadow-lg transition-colors"
@@ -350,21 +350,21 @@ export default function Home() {
         </section>
 
         {/* External Platforms */}
-        <section className="max-w-5xl mx-auto px-6 py-16">
+        <section className="max-w-5xl mx-auto px-6 py-8">
           <h2 className="text-3xl font-bold text-center mb-12">Explore the Ecosystem</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <a href="https://xpmarket.com/token/PLX-rGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q" target="_blank" rel="noopener noreferrer" className="group">
-              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-4 text-center hover:border-primary transition-all">
                 <p className="text-xl font-semibold group-hover:text-primary transition-colors">PLX AMM at XPMarket</p>
               </div>
             </a>
             <a href="https://xrp.cafe/collection/polluxoriginal" target="_blank" rel="noopener noreferrer" className="group">
-              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-4 text-center hover:border-primary transition-all">
                 <p className="text-xl font-semibold group-hover:text-primary transition-colors">Visit PLX on NFTCafe</p>
               </div>
             </a>
             <a href="https://www.xmagnetic.org/dex/PLX%2BrGLEgQdktoN4Be5thhk6seg1HifGPBxY5Q_XRP%2BXRP?network=mainnet" target="_blank" rel="noopener noreferrer" className="group">
-              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-8 text-center hover:border-primary transition-all">
+              <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-4 text-center hover:border-primary transition-all">
                 <p className="text-xl font-semibold group-hover:text-primary transition-colors">Trade $PLX on Magnetic</p>
               </div>
             </a>
@@ -372,7 +372,7 @@ export default function Home() {
         </section>
 
         {/* Social Links */}
-        <section className="max-w-4xl mx-auto px-6 py-16 text-center pb-24">
+        <section className="max-w-4xl mx-auto px-6 py-8 text-center pb-12">
           <p className="text-xl text-muted-foreground mb-8">Follow the journey</p>
           <div className="flex justify-center gap-12 text-lg">
             <a href="https://x.com/pollux2789" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
