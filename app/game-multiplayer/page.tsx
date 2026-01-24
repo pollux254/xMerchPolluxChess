@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
-import type { Square } from "react-chessboard/dist/chessboard/types"
 import { motion } from "framer-motion"
 import { Moon, Sun, Monitor } from "lucide-react"
 import { getSupabaseClient } from "@/lib/supabase-client"
@@ -361,7 +360,7 @@ function GameMultiplayerContent() {
     }, 3000)
   }
 
-  function onDrop(sourceSquare: Square, targetSquare: Square): boolean {
+  function onDrop(sourceSquare: string, targetSquare: string): boolean {
     const isMyTurn = (game.turn() === 'w' && myColor === 'white') || 
                      (game.turn() === 'b' && myColor === 'black')
     
