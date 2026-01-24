@@ -13,7 +13,7 @@ function WaitingRoomContent() {
   const [tournament, setTournament] = useState<any>(null)
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [loadingMessage, setLoadingMessage] = useState("Loading tournament...")
+  const [loadingMessage, setLoadingMessage] = useState("Joining tournament...")
   const [timeRemaining, setTimeRemaining] = useState<number>(600)
   const [walletVerified, setWalletVerified] = useState(false)
 
@@ -47,7 +47,8 @@ function WaitingRoomContent() {
 
     const supabase = getSupabaseClient()
 
-    async function verifyWallet() {
+    // ✅ FIXED: Retry logic for wallet verification (handles race condition)
+    async function verifyWallet(retries = 5, delay = 800) {
       const playerID = localStorage.getItem('playerID')
       if (!playerID || !tournamentId) {
         alert("❌ No wallet connected.\n\nPlease connect your wallet first.")
@@ -64,25 +65,40 @@ function WaitingRoomContent() {
         return false
       }
 
-      const verification = await verifyWalletMatch(tournamentId, playerID)
+      // ✅ RETRY LOGIC: Player might not be in DB yet after redirect
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        console.log(`🔐 Verification attempt ${attempt}/${retries}...`)
+        
+        const verification = await verifyWalletMatch(tournamentId, playerID)
 
-      if (!verification.isValid) {
-        console.error("❌ WALLET MISMATCH DETECTED!")
-        alert(`❌ SECURITY ERROR: Wallet Mismatch\n\n${verification.message}\n\nReturning to lobby.`)
-        window.location.href = "/chess"
-        return false
+        if (verification.isValid) {
+          console.log("✅ Wallet verified successfully!")
+          setWalletVerified(true)
+          return true
+        }
+
+        // If not last attempt, wait and retry
+        if (attempt < retries) {
+          console.log(`⏳ Player not in DB yet, retrying in ${delay}ms...`)
+          setLoadingMessage(`Verifying wallet (attempt ${attempt}/${retries})...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
       }
 
-      console.log("✅ Wallet verified successfully")
-      setWalletVerified(true)
-      return true
+      // After all retries exhausted
+      console.error("❌ WALLET VERIFICATION FAILED after", retries, "attempts")
+      alert(`❌ SECURITY ERROR: Unable to verify wallet\n\nYou may not be registered in this tournament.\n\nReturning to lobby.`)
+      window.location.href = "/chess"
+      return false
     }
 
     async function fetchTournamentStatus() {
       try {
+        setLoadingMessage("Verifying wallet...")
         const isVerified = await verifyWallet()
         if (!isVerified) return
 
+        setLoadingMessage("Loading tournament...")
         console.log("🔍 Fetching tournament status...")
         
         const { data, error } = await supabase
@@ -298,7 +314,7 @@ function WaitingRoomContent() {
             <span className="text-3xl">♟️</span>
           </div>
           <p className="text-2xl font-bold text-white mb-2">{loadingMessage}</p>
-          <p className="text-sm text-gray-400">Verifying wallet...</p>
+          <p className="text-sm text-gray-400">Please wait...</p>
         </div>
       </div>
     )
