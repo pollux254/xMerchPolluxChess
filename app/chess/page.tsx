@@ -486,7 +486,7 @@ export default function Chess() {
     window.location.reload()
   }
 
-  // ✅ FIXED: Payment validation with cleanup
+  // ✅ FIXED: Payment validation with cleanup + WebSocket wait for ALL devices
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -503,7 +503,7 @@ export default function Chess() {
       return
     }
 
-    let tournamentId: string | null = null // ✅ CRITICAL: Declare here
+    let tournamentId: string | null = null
 
     try {
       setLoadingPay(true)
@@ -538,7 +538,7 @@ export default function Chess() {
       }
 
       const joinData = await joinRes.json()
-      tournamentId = joinData.tournamentId // ✅ CRITICAL: Assign here
+      tournamentId = joinData.tournamentId
       
       console.log("✅ Tournament ready:", tournamentId)
 
@@ -582,30 +582,44 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // Step 3: Open Xaman
+      // Step 3: Open Xaman (FIXED - works for both desktop AND mobile/browser)
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
       
       let xamanPopup: Window | null = null
       
-      if (isMobileDevice) {
-        console.log("📱 Mobile: Using deep link")
-        const deepLink = `xumm://xumm.app/sign/${uuid}`
-        window.location.href = deepLink
-      } else {
-        console.log("💻 Desktop - Opening popup")
-        xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
-        
-        if (!xamanPopup) {
-          alert("Popup blocked! Please allow popups for Xaman.")
-          throw new Error("Popup blocked")
+      console.log(isMobileDevice ? "📱 Mobile device detected" : "💻 Desktop detected")
+      console.log("🔓 Opening Xaman in new window...")
+      
+      // ✅ FIX: ALWAYS open in new window/tab (never redirect current page)
+      // This keeps the WebSocket alive on the current page for BOTH mobile and desktop
+      xamanPopup = window.open(nextUrl, "_blank", isMobileDevice ? "" : "width=480,height=720")
+      
+      if (!xamanPopup) {
+        console.warn("⚠️ Popup was blocked - showing manual instructions")
+        const userConfirm = confirm(
+          "⚠️ Popup was blocked!\n\n" +
+          "Please manually:\n" +
+          "1. Open your Xaman app or browser extension\n" +
+          "2. Check for pending payment request\n" +
+          "3. Sign the transaction\n\n" +
+          "This page will automatically detect when signed.\n\n" +
+          "Click OK to continue waiting for confirmation."
+        )
+        if (!userConfirm) {
+          throw new Error("Payment cancelled by user")
         }
+        // Even if popup blocked, WebSocket below will still listen for confirmation
       }
 
+      console.log("⏳ Waiting for payment confirmation via WebSocket...")
+
       // Step 4: CRITICAL - Wait for payment confirmation
+      // WebSocket runs on THIS page (which stays open)
       const ws = new WebSocket(websocketUrl)
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
+          console.log("⏱️ Payment timeout (5 minutes)")
           ws.close()
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
           reject(new Error("Payment request timed out"))
@@ -613,44 +627,49 @@ export default function Chess() {
 
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
-          console.log("📡 Payment status:", status)
+          console.log("📡 Payment status update:", status)
 
           if (status.signed === true) {
             clearTimeout(timeoutId)
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
-            console.log("✅ Payment confirmed!")
+            console.log("✅ Payment CONFIRMED!")
             ws.close()
             resolve(true)
           } else if (status.signed === false) {
             clearTimeout(timeoutId)
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
+            console.log("❌ Payment REJECTED by user")
             ws.close()
             reject(new Error("Payment rejected by user"))
           }
         }
 
         ws.onerror = (error) => {
-          console.error("WebSocket error:", error)
+          console.error("❌ WebSocket error:", error)
           clearTimeout(timeoutId)
           if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
           reject(new Error("Connection error"))
         }
+
+        ws.onclose = () => {
+          console.log("🔌 WebSocket closed")
+        }
       })
 
+      // WAIT for payment to be confirmed before redirecting
       await paymentPromise
 
-      // Step 5: ONLY redirect if successful
-      console.log("✅ Payment confirmed - redirecting...")
-      setLoadingPay(true)
+      // Step 5: ONLY redirect if payment was successfully confirmed
+      console.log("✅ Payment confirmed - redirecting to waiting room...")
       await new Promise(resolve => setTimeout(resolve, 1000))
       window.location.href = `/waiting-room?tournamentId=${tournamentId}`
 
     } catch (err: any) {
       console.error("❌ Payment error:", err)
       
-      // ✅ CRITICAL FIX: Remove from tournament
+      // ✅ CRITICAL FIX: Remove from tournament if payment failed
       if (tournamentId && playerID) {
-        console.log("🧹 Removing player from tournament...")
+        console.log("🧹 Cleaning up - removing player from tournament...")
         try {
           await fetch('/api/tournaments/leave', {
             method: 'POST',
@@ -660,7 +679,7 @@ export default function Chess() {
               tournamentId: tournamentId
             })
           })
-          console.log("✅ Player removed")
+          console.log("✅ Player removed from tournament")
         } catch (cleanupErr) {
           console.error("❌ Cleanup failed:", cleanupErr)
         }
@@ -676,11 +695,13 @@ export default function Chess() {
         errorMessage = "Connection error - please try again"
       } else if (err.message.includes("Popup blocked")) {
         errorMessage = "Popup was blocked - please allow popups"
+      } else if (err.message.includes("cancelled by user")) {
+        errorMessage = "Payment was cancelled"
       } else {
         errorMessage = err.message
       }
       
-      alert(`❌ ${errorMessage}\n\nPlease try again or contact support.`)
+      alert(`❌ ${errorMessage}\n\nYou can try again.`)
       
       setLoadingPay(false)
     }
