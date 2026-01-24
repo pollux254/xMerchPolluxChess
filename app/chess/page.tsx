@@ -486,7 +486,7 @@ export default function Chess() {
     window.location.reload()
   }
 
-  // ✅ FIXED: Payment validation with cleanup + WebSocket wait for ALL devices
+  // ✅ FIXED: Create payment FIRST, join tournament AFTER confirmation
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -510,47 +510,16 @@ export default function Chess() {
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
       console.log(`🪝 Hook Address: ${hookAddress}`)
 
-      // Step 1: Join tournament
-      console.log("🔍 Finding or creating tournament...")
-      const joinRes = await fetch('/api/tournaments/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerAddress: playerID,
-          tournamentSize: selectedSize,
-          entryFee: selectedFee,
-          currency: selectedAsset.currency,
-          issuer: selectedAsset.issuer,
-        })
-      })
-
-      if (!joinRes.ok) {
-        const errorData = await joinRes.json()
-        
-        if (joinRes.status === 409 && errorData.tournamentId) {
-          console.log("❌ Player already in tournament:", errorData.tournamentId)
-          alert("You're already in a tournament!\n\nRedirecting...")
-          window.location.href = `/waiting-room?tournamentId=${errorData.tournamentId}`
-          return
-        }
-        
-        throw new Error(errorData.error || 'Failed to join tournament')
-      }
-
-      const joinData = await joinRes.json()
-      tournamentId = joinData.tournamentId
+      // ✅ STEP 1: Create payment payload FIRST (before database write)
+      console.log("📤 Creating Xaman payload BEFORE joining tournament...")
       
-      console.log("✅ Tournament ready:", tournamentId)
-
-      // Step 2: Create payment
-      const memoData = {
+      const tempMemoData = {
         action: "join",
-        tournament: tournamentId,
         player: playerID,
-        network: network
+        network: network,
+        size: selectedSize,
+        fee: selectedFee
       }
-
-      console.log("📤 Creating Xaman payload...")
       
       const payloadRes = await fetch("/api/payment-hook", {
         method: "POST",
@@ -563,7 +532,7 @@ export default function Chess() {
           currency: selectedAsset.currency,
           issuer: selectedAsset.issuer,
           destination: hookAddress,
-          memo: JSON.stringify(memoData),
+          memo: JSON.stringify(tempMemoData),
           network: network
         })
       })
@@ -582,7 +551,7 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // Step 3: Open Xaman (FIXED - works for both desktop AND mobile/browser)
+      // ✅ STEP 2: Open Xaman
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
       
       let xamanPopup: Window | null = null
@@ -590,8 +559,6 @@ export default function Chess() {
       console.log(isMobileDevice ? "📱 Mobile device detected" : "💻 Desktop detected")
       console.log("🔓 Opening Xaman in new window...")
       
-      // ✅ FIX: ALWAYS open in new window/tab (never redirect current page)
-      // This keeps the WebSocket alive on the current page for BOTH mobile and desktop
       xamanPopup = window.open(nextUrl, "_blank", isMobileDevice ? "" : "width=480,height=720")
       
       if (!xamanPopup) {
@@ -608,13 +575,11 @@ export default function Chess() {
         if (!userConfirm) {
           throw new Error("Payment cancelled by user")
         }
-        // Even if popup blocked, WebSocket below will still listen for confirmation
       }
 
       console.log("⏳ Waiting for payment confirmation via WebSocket...")
 
-      // Step 4: CRITICAL - Wait for payment confirmation
-      // WebSocket runs on THIS page (which stays open)
+      // ✅ STEP 3: Wait for ledger validation
       const ws = new WebSocket(websocketUrl)
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
@@ -653,7 +618,7 @@ export default function Chess() {
             console.log("📤 Dispatched to ledger...")
           }
 
-          // CRITICAL: Check ledger result
+          // ✅ CRITICAL: Check ledger result
           if (status.payload_uuidv4 || status.resolved === true || status.payload_resolved === true) {
             const result = status.result?.engine_result || status.meta?.TransactionResult
             
@@ -690,36 +655,53 @@ export default function Chess() {
         }
       })
 
-      // WAIT for ledger validation before redirecting
       await paymentPromise
 
-      // Step 5: ONLY redirect if payment was successfully confirmed
-      console.log("✅ Payment confirmed - redirecting to waiting room...")
+      // ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
+      console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
+      
+      const joinRes = await fetch('/api/tournaments/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerAddress: playerID,
+          tournamentSize: selectedSize,
+          entryFee: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer,
+        })
+      })
+
+      if (!joinRes.ok) {
+        const errorData = await joinRes.json()
+        
+        if (joinRes.status === 409 && errorData.tournamentId) {
+          console.log("❌ Player already in tournament:", errorData.tournamentId)
+          alert("You're already in a tournament!\n\nRedirecting...")
+          window.location.href = `/waiting-room?tournamentId=${errorData.tournamentId}`
+          return
+        }
+        
+        throw new Error(errorData.error || 'Failed to join tournament')
+      }
+
+      const joinData = await joinRes.json()
+      tournamentId = joinData.tournamentId
+      
+      console.log("✅ Joined tournament:", tournamentId)
+
+      // ✅ STEP 5: Redirect to waiting room
+      console.log("🚀 Redirecting to waiting room...")
       await new Promise(resolve => setTimeout(resolve, 1000))
       window.location.href = `/waiting-room?tournamentId=${tournamentId}`
 
     } catch (err: any) {
       console.error("❌ Payment error:", err)
       
-      // ✅ CRITICAL FIX: Remove from tournament if payment failed
-      if (tournamentId && playerID) {
-        console.log("🧹 Cleaning up - removing player from tournament...")
-        try {
-          await fetch('/api/tournaments/leave', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              playerAddress: playerID,
-              tournamentId: tournamentId
-            })
-          })
-          console.log("✅ Player removed from tournament")
-        } catch (cleanupErr) {
-          console.error("❌ Cleanup failed:", cleanupErr)
-        }
-      }
+      // No cleanup needed - player was never added to tournament
+      console.log("ℹ️ Payment failed before joining - no database cleanup needed")
       
-      // User-friendly error
+      // User-friendly error messages
       let errorMessage = "Payment failed"
       if (err.message.includes("rejected")) {
         errorMessage = "Payment was cancelled"
@@ -739,6 +721,8 @@ export default function Chess() {
         errorMessage = "Popup was blocked - please allow popups"
       } else if (err.message.includes("cancelled by user")) {
         errorMessage = "Payment was cancelled"
+      } else if (err.message.includes("Failed to join tournament")) {
+        errorMessage = "Payment succeeded but failed to join tournament - contact support"
       } else if (err.message.includes("failed:")) {
         const match = err.message.match(/failed: (\w+)/)
         errorMessage = match ? `Transaction failed: ${match[1]}` : err.message
