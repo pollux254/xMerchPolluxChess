@@ -52,10 +52,16 @@ serve(async (req: Request) => {
 
     const data = await response.json()
 
+    // ✅ CRITICAL FIX: Return full payload data including transaction result
+    // This is needed to verify payment success (tesSUCCESS) on mobile
     return new Response(
       JSON.stringify({
         account: data?.response?.account || null,
         signed: data?.meta?.signed || false,
+        // ✅ Add transaction result for validation
+        response: data?.response || null,
+        meta: data?.meta || null,
+        payload: data?.payload || null,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
