@@ -13,7 +13,11 @@ interface SignInResponse {
 
 export async function POST(req: NextRequest) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+    // ✅ FIX: Get returnUrl from request body (sent by chess page)
+    const body = await req.json()
+    const returnUrl = body.returnUrl || process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+    
+    console.log("🔐 SignIn - returnUrl from request:", returnUrl)
 
     const header = (req.headers.get("x-xahau-network") || "").toLowerCase()
     const network: XahauNetwork = header === "testnet" || header === "mainnet" ? (header as XahauNetwork) : "testnet"
@@ -33,7 +37,7 @@ export async function POST(req: NextRequest) {
           apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         },
         body: JSON.stringify({
-          returnUrl: baseUrl,
+          returnUrl: returnUrl, // ✅ FIX: Pass through the returnUrl
           network,
         }),
       })
@@ -82,7 +86,8 @@ export async function POST(req: NextRequest) {
         submit: false,
         expire: 300,
         return_url: {
-          web: baseUrl,
+          web: returnUrl,  // ✅ FIX: Use returnUrl from chess page
+          app: returnUrl,  // ✅ FIX: Add app property for mobile!
         },
       },
       custom_meta: {
@@ -92,6 +97,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("🔐 Creating signin payload with NetworkID:", networkId)
+    console.log("🔐 Using return URLs (web + app):", returnUrl)
 
     const response = await xaman.payload.create(payload)
 
