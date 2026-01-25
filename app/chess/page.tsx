@@ -121,6 +121,73 @@ export default function Chess() {
       setLoadingPay(true)
       console.log("🔄 Resuming payment after mobile redirect...")
       
+      // ✅ CRITICAL FIX: Check payload status via API FIRST
+      // When user returns from Xaman, the payment may already be complete
+      // WebSocket won't re-send old status, so we must check API
+      console.log("📞 Checking payment status via API (uuid:", paymentData.uuid, ")")
+      
+      try {
+        const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uuid: paymentData.uuid }),
+        })
+
+        if (payloadRes.ok) {
+          const payloadStatus = await payloadRes.json()
+          console.log("📊 Payload API status:", JSON.stringify(payloadStatus, null, 2))
+          
+          // Check if payment already completed successfully
+          const result = payloadStatus.response?.result?.engine_result || 
+                        payloadStatus.meta?.TransactionResult ||
+                        payloadStatus.result?.engine_result
+          
+          if (result === "tesSUCCESS") {
+            console.log("✅ Payment already completed and validated! Proceeding directly...")
+            
+            // Clear pending payment
+            sessionStorage.removeItem('pendingPayment')
+            
+            // Join tournament directly
+            console.log("✅ Joining tournament after confirmed mobile payment...")
+            const joinRes = await fetch('/api/tournaments/join', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(paymentData.tournamentData)
+            })
+            
+            if (!joinRes.ok) {
+              const errorText = await joinRes.text()
+              console.error("❌ Join API failed:", errorText)
+              throw new Error(`Failed to join tournament: ${errorText}`)
+            }
+
+            const joinData = await joinRes.json()
+            console.log("✅ Joined tournament:", joinData.tournamentId)
+            
+            if (joinRes.status === 409 && joinData.tournamentId) {
+              console.log("⚠️ Player already in tournament:", joinData.tournamentId)
+              alert("You're already in a tournament!\n\nRedirecting...")
+            }
+            
+            // Redirect to waiting room
+            console.log("🚀 Redirecting to waiting room from mobile...")
+            window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+            return // Exit early - success!
+          } else if (payloadStatus.response?.rejected === true) {
+            throw new Error("Payment was rejected")
+          } else {
+            console.log("⏳ Payment not complete yet, falling back to WebSocket polling...")
+          }
+        } else {
+          console.warn("⚠️ Could not check payload status, falling back to WebSocket")
+        }
+      } catch (apiError) {
+        console.warn("⚠️ API check failed, falling back to WebSocket:", apiError)
+      }
+      
+      // ✅ FALLBACK: If API didn't confirm completion, listen to WebSocket
+      console.log("👂 Listening to WebSocket for payment updates...")
       const ws = new WebSocket(paymentData.websocketUrl)
       let txValidated = false
       
@@ -132,7 +199,7 @@ export default function Chess() {
         
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
-          console.log("📡 Mobile return - WebSocket:", JSON.stringify(status, null, 2))
+          console.log("📡 Mobile WebSocket:", JSON.stringify(status, null, 2))
           
           // User rejected
           if (status.signed === false) {
@@ -142,7 +209,7 @@ export default function Chess() {
             return
           }
           
-          // ✅ COMPREHENSIVE CHECK: Multiple ways to detect success (same as desktop)
+          // ✅ COMPREHENSIVE CHECK: Multiple ways to detect success
           const shouldCheckResult = 
             status.signed === true ||
             status.payload_resolved === true ||
@@ -161,11 +228,10 @@ export default function Chess() {
               if (result === "tesSUCCESS") {
                 txValidated = true
                 clearTimeout(timeoutId)
-                console.log("✅ VALIDATED on ledger after mobile return!")
+                console.log("✅ VALIDATED on ledger via WebSocket!")
                 ws.close()
                 resolve(true)
               } else if (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter")) {
-                // Transaction failed
                 clearTimeout(timeoutId)
                 console.error("❌ TX FAILED:", result)
                 ws.close()
@@ -174,11 +240,11 @@ export default function Chess() {
                 console.log("⏳ Waiting for final result...")
               }
             } else if (status.signed === true) {
-              // ✅ FALLBACK: Signed but no result yet - wait a bit then accept
-              console.log("✍️ Signed on mobile return, waiting 3 seconds for ledger confirmation...")
+              // ✅ FALLBACK: Signed but no result yet - wait then accept
+              console.log("✍️ Signed, waiting 3 seconds for ledger confirmation...")
               setTimeout(() => {
                 if (!txValidated) {
-                  console.log("⏰ Accepting payment after 3 second delay (mobile)...")
+                  console.log("⏰ Accepting payment after delay...")
                   txValidated = true
                   clearTimeout(timeoutId)
                   ws.close()
@@ -238,7 +304,7 @@ export default function Chess() {
       console.error("❌ Mobile payment resume error:", err)
       sessionStorage.removeItem('pendingPayment')
       
-      // User-friendly error messages (same as desktop)
+      // User-friendly error messages
       let errorMessage = "Payment verification failed"
       if (err.message.includes("rejected")) {
         errorMessage = "Payment was cancelled"
