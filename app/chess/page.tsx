@@ -486,7 +486,6 @@ export default function Chess() {
     window.location.reload()
   }
 
-  // ✅ FIXED: Create payment FIRST, join tournament AFTER confirmation
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -510,7 +509,7 @@ export default function Chess() {
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
       console.log(`🪝 Hook Address: ${hookAddress}`)
 
-      // ✅ STEP 1: Create payment payload FIRST (before database write)
+      // STEP 1: Create payment payload FIRST (no DB write yet)
       console.log("📤 Creating Xaman payload BEFORE joining tournament...")
       
       const tempMemoData = {
@@ -551,26 +550,23 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // ✅ STEP 2: Open Xaman
+      // STEP 2: Open Xaman safely on ALL devices
       const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
       
       let xamanPopup: Window | null = null
       
       console.log(isMobileDevice ? "📱 Mobile device detected" : "💻 Desktop detected")
-      console.log("🔓 Opening Xaman in new window...")
+      console.log("🔓 Opening Xaman in new tab/window...")
       
-      xamanPopup = window.open(nextUrl, "_blank", isMobileDevice ? "" : "width=480,height=720")
+      xamanPopup = window.open(nextUrl, "_blank")
       
       if (!xamanPopup) {
-        console.warn("⚠️ Popup was blocked - showing manual instructions")
+        console.warn("⚠️ New tab/window was blocked")
         const userConfirm = confirm(
-          "⚠️ Popup was blocked!\n\n" +
-          "Please manually:\n" +
-          "1. Open your Xaman app or browser extension\n" +
-          "2. Check for pending payment request\n" +
-          "3. Sign the transaction\n\n" +
-          "This page will automatically detect when signed.\n\n" +
-          "Click OK to continue waiting for confirmation."
+          "⚠️ New tab was blocked!\n\nPlease:\n" +
+          "1. Allow popups/new tabs for this site\n" +
+          "2. Or open Xaman manually and check for pending request\n\n" +
+          "Click OK to keep waiting here for confirmation."
         )
         if (!userConfirm) {
           throw new Error("Payment cancelled by user")
@@ -579,7 +575,7 @@ export default function Chess() {
 
       console.log("⏳ Waiting for payment confirmation via WebSocket...")
 
-      // ✅ STEP 3: Wait for ledger validation
+      // STEP 3: Wait for ledger validation
       const ws = new WebSocket(websocketUrl)
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
@@ -596,11 +592,8 @@ export default function Chess() {
 
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
-          
-          // ✅ LOG EVERYTHING for debugging
           console.log("📡 WebSocket received:", JSON.stringify(status, null, 2))
 
-          // User rejected
           if (status.signed === false) {
             clearTimeout(timeoutId)
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
@@ -610,7 +603,6 @@ export default function Chess() {
             return
           }
 
-          // ✅ IMPROVED: Multiple ways to detect success
           const shouldCheckResult = 
             status.signed === true ||
             status.payload_resolved === true ||
@@ -618,7 +610,6 @@ export default function Chess() {
             status.dispatched === true
 
           if (shouldCheckResult && !txValidated) {
-            // Try multiple ways to get the result
             const result = status.result?.engine_result || 
                            status.meta?.TransactionResult ||
                            status.response?.engine_result
@@ -634,7 +625,6 @@ export default function Chess() {
                 ws.close()
                 resolve(true)
               } else if (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter")) {
-                // Transaction failed
                 clearTimeout(timeoutId)
                 if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
                 console.error("❌ TX FAILED:", result)
@@ -644,7 +634,6 @@ export default function Chess() {
                 console.log("⏳ Waiting for final result...")
               }
             } else if (status.signed === true) {
-              // ✅ FALLBACK: Signed but no result yet - wait a bit then accept
               console.log("✍️ Signed, waiting 3 seconds for ledger confirmation...")
               setTimeout(() => {
                 if (!txValidated) {
@@ -676,15 +665,8 @@ export default function Chess() {
 
       await paymentPromise
 
-      // ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
+      // STEP 4: Join tournament only after payment confirmed
       console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
-      console.log("📤 Sending join request with:", {
-        playerAddress: playerID,
-        tournamentSize: selectedSize,
-        entryFee: selectedFee,
-        currency: selectedAsset.currency,
-        issuer: selectedAsset.issuer,
-      })
       
       const joinRes = await fetch('/api/tournaments/join', {
         method: 'POST',
@@ -698,8 +680,6 @@ export default function Chess() {
         })
       })
 
-      console.log("📡 Join API response status:", joinRes.status)
-
       if (!joinRes.ok) {
         const errorText = await joinRes.text()
         console.error("❌ Join API failed:", errorText)
@@ -707,20 +687,11 @@ export default function Chess() {
       }
 
       const joinData = await joinRes.json()
-      console.log("✅ Join API response:", joinData)
       tournamentId = joinData.tournamentId
-      
-      // Check for already joined
-      if (joinRes.status === 409 && joinData.tournamentId) {
-        console.log("⚠️ Player already in tournament:", joinData.tournamentId)
-        alert("You're already in a tournament!\n\nRedirecting...")
-        window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
-        return
-      }
       
       console.log("✅ Joined tournament:", tournamentId)
 
-      // ✅ STEP 5: Redirect to waiting room
+      // STEP 5: Redirect to waiting room
       console.log("🚀 Redirecting to waiting room...")
       await new Promise(resolve => setTimeout(resolve, 1000))
       window.location.href = `/waiting-room?tournamentId=${tournamentId}`
@@ -747,21 +718,15 @@ export default function Chess() {
         errorMessage = "Transaction error - please check your balance"
       } else if (err.message.includes("Connection error")) {
         errorMessage = "Connection error - please try again"
-      } else if (err.message.includes("Popup blocked")) {
-        errorMessage = "Popup was blocked - please allow popups"
+      } else if (err.message.includes("blocked")) {
+        errorMessage = "New tab was blocked - please allow new tabs"
       } else if (err.message.includes("cancelled by user")) {
         errorMessage = "Payment was cancelled"
-      } else if (err.message.includes("Failed to join tournament")) {
-        errorMessage = "Payment succeeded but failed to join tournament - contact support"
-      } else if (err.message.includes("failed:")) {
-        const match = err.message.match(/failed: (\w+)/)
-        errorMessage = match ? `Transaction failed: ${match[1]}` : err.message
       } else {
         errorMessage = err.message
       }
       
       alert(`❌ ${errorMessage}\n\nYou can try again.`)
-      
       setLoadingPay(false)
     }
   }
@@ -1055,14 +1020,14 @@ export default function Chess() {
         />
       )}
 
-      {playerID && (
-        <ProfileModal 
-          isOpen={showProfile}
-          onClose={() => setShowProfile(false)}
-          walletAddress={playerID}
-        />
-      )}
-      </div>
-    </div>
-  )
+  {playerID && (
+    <ProfileModal 
+      isOpen={showProfile}
+      onClose={() => setShowProfile(false)}
+      walletAddress={playerID}
+    />
+  )}
+  </div>
+</div>
+)
 }
