@@ -104,8 +104,9 @@ export default function Chess() {
     return isMobile
   }
 
-  // ✅ MOBILE: Check if returning from Xaman payment
+  // ✅ MOBILE: Check if returning from Xaman (payment OR login)
   useEffect(() => {
+    // Check for pending payment first
     const pendingPayment = sessionStorage.getItem('pendingPayment')
     console.log("🔍 [MOBILE CHECK] pendingPayment in sessionStorage:", !!pendingPayment)
     
@@ -127,10 +128,107 @@ export default function Chess() {
         console.error("❌ [MOBILE] Failed to parse pendingPayment:", err)
         sessionStorage.removeItem('pendingPayment')
       }
-    } else {
-      console.log("ℹ️ [MOBILE] No pending payment found")
+      return // Exit early if handling payment
+    }
+    
+    // ✅ NEW: Check for pending login
+    const waitingForLogin = sessionStorage.getItem('waitingForLogin')
+    console.log("🔍 [MOBILE CHECK] waitingForLogin in sessionStorage:", !!waitingForLogin)
+    
+    if (waitingForLogin) {
+      console.log("📱 [MOBILE] Returned from Xaman login - resuming...")
+      
+      const signinUuid = sessionStorage.getItem('signinUuid')
+      
+      if (signinUuid) {
+        resumeLoginAfterMobileRedirect(signinUuid)
+      } else {
+        console.error("❌ [MOBILE] No signinUuid found")
+        sessionStorage.removeItem('waitingForLogin')
+        setLoadingLogin(false)
+      }
     }
   }, [])
+
+  // ✅ NEW: Resume login after mobile redirect
+  async function resumeLoginAfterMobileRedirect(uuid: string) {
+    try {
+      setLoadingLogin(true)
+      console.log("🔄 Resuming login after mobile redirect...")
+      console.log("📞 Checking signin status via API (uuid:", uuid, ")")
+      
+      const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uuid }),
+      })
+
+      if (!payloadRes.ok) {
+        throw new Error(await payloadRes.text())
+      }
+      
+      const payloadData = await payloadRes.json()
+      console.log("📊 Login payload status:", JSON.stringify(payloadData, null, 2))
+
+      if (payloadData.account) {
+        const walletAddress = payloadData.account
+
+        console.log("✅ Login successful! Wallet:", walletAddress)
+        console.log("Creating Supabase session for wallet:", walletAddress)
+        
+        const { data: authData, error: authError } = await supabase.auth.signInAnonymously({
+          options: {
+            data: {
+              wallet_address: walletAddress
+            }
+          }
+        })
+
+        if (authError) {
+          console.error("Supabase auth error:", authError)
+          setPlayerID(walletAddress)
+          localStorage.setItem("playerID", walletAddress)
+          await getOrCreateProfile(walletAddress)
+          alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+        } else {
+          console.log("✅ Supabase session created:", authData.session?.user.id)
+          console.log("✅ Wallet stored in metadata:", authData.session?.user.user_metadata.wallet_address)
+          
+          setPlayerID(walletAddress)
+          localStorage.setItem("playerID", walletAddress)
+          await getOrCreateProfile(walletAddress)
+          alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+        }
+        
+        // Clear session flags
+        sessionStorage.removeItem("waitingForLogin")
+        sessionStorage.removeItem("signinUuid")
+        
+      } else if (payloadData.response?.rejected === true) {
+        throw new Error("Login was rejected")
+      } else {
+        throw new Error("No account found in signin response")
+      }
+      
+    } catch (err: any) {
+      console.error("❌ Mobile login resume error:", err)
+      
+      let errorMessage = "Login verification failed"
+      if (err.message.includes("rejected")) {
+        errorMessage = "Login was cancelled"
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      alert(`❌ ${errorMessage}\n\nPlease try again.`)
+      
+      // Clear session flags
+      sessionStorage.removeItem("waitingForLogin")
+      sessionStorage.removeItem("signinUuid")
+    } finally {
+      setLoadingLogin(false)
+    }
+  }
 
   async function resumePaymentAfterMobileRedirect(paymentData: any) {
     try {
@@ -510,6 +608,7 @@ export default function Chess() {
       console.log("📱 Login device detection:", isMobile ? "MOBILE/TABLET" : "DESKTOP")
       
       sessionStorage.setItem("waitingForLogin", "true")
+      sessionStorage.setItem("signinUuid", uuid) // ✅ CRITICAL FIX: Store UUID for mobile resume
       
       let signinPopup: Window | null = null
       let popupCheckInterval: NodeJS.Timeout | null = null
@@ -977,32 +1076,32 @@ export default function Chess() {
 
       await paymentPromise
 
-// ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
-console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
-console.log("📤 Sending join request with:", {
-  playerAddress: playerID,
-  tournamentSize: selectedSize,
-  entryFee: selectedFee,
-  currency: selectedAsset.currency,
-  issuer: selectedAsset.issuer,
-})
+      // ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
+      console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
+      console.log("📤 Sending join request with:", {
+        playerAddress: playerID,
+        tournamentSize: selectedSize,
+        entryFee: selectedFee,
+        currency: selectedAsset.currency,
+        issuer: selectedAsset.issuer,
+      })
+      
+      const joinRes = await fetch('/api/tournaments/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerAddress: playerID,
+          tournamentSize: selectedSize,
+          entryFee: selectedFee,
+          currency: selectedAsset.currency,
+          issuer: selectedAsset.issuer
+        })
+      })
 
-const joinRes = await fetch('/api/tournaments/join', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    playerAddress: playerID,
-    tournamentSize: selectedSize,
-    entryFee: selectedFee,
-    currency: selectedAsset.currency,
-    issuer: selectedAsset.issuer
-  })
-})
+      console.log("📡 Join API response status:", joinRes.status)
 
-console.log("📡 Join API response status:", joinRes.status)
-
-if (!joinRes.ok) {
-  const errorText = await joinRes.text()
+      if (!joinRes.ok) {
+        const errorText = await joinRes.text()
         console.error("❌ Join API failed:", errorText)
         throw new Error(`Failed to join tournament: ${errorText}`)
       }
