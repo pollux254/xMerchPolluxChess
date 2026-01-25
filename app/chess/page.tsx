@@ -812,7 +812,8 @@ export default function Chess() {
           issuer: selectedAsset.issuer,
           destination: hookAddress,
           memo: JSON.stringify(tempMemoData),
-          network: network
+          network: network,
+          returnUrl: `${window.location.origin}/waiting-room`
         })
       })
 
@@ -976,32 +977,32 @@ export default function Chess() {
 
       await paymentPromise
 
-      // ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
-      console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
-      console.log("📤 Sending join request with:", {
-        playerAddress: playerID,
-        tournamentSize: selectedSize,
-        entryFee: selectedFee,
-        currency: selectedAsset.currency,
-        issuer: selectedAsset.issuer,
-      })
-      
-      const joinRes = await fetch('/api/tournaments/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerAddress: playerID,
-          tournamentSize: selectedSize,
-          entryFee: selectedFee,
-          currency: selectedAsset.currency,
-          issuer: selectedAsset.issuer,
-        })
-      })
+// ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
+console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
+console.log("📤 Sending join request with:", {
+  playerAddress: playerID,
+  tournamentSize: selectedSize,
+  entryFee: selectedFee,
+  currency: selectedAsset.currency,
+  issuer: selectedAsset.issuer,
+})
 
-      console.log("📡 Join API response status:", joinRes.status)
+const joinRes = await fetch('/api/tournaments/join', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    playerAddress: playerID,
+    tournamentSize: selectedSize,
+    entryFee: selectedFee,
+    currency: selectedAsset.currency,
+    issuer: selectedAsset.issuer
+  })
+})
 
-      if (!joinRes.ok) {
-        const errorText = await joinRes.text()
+console.log("📡 Join API response status:", joinRes.status)
+
+if (!joinRes.ok) {
+  const errorText = await joinRes.text()
         console.error("❌ Join API failed:", errorText)
         throw new Error(`Failed to join tournament: ${errorText}`)
       }

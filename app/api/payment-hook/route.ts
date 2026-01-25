@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const { amount, currency, issuer, destination, memo, network } = await req.json()
+    const { amount, currency, issuer, destination, memo, network, returnUrl } = await req.json()
     
     console.log('🪝 [Payment-Hook] Creating Hook payment payload')
     console.log('  Amount:', amount)
     console.log('  Currency:', currency)
     console.log('  Destination:', destination)
     console.log('  Network:', network)
+    console.log('  Return URL:', returnUrl || 'not provided')
     
     // Use XUMM variables (they work) with XAMAN fallback
     const API_KEY = process.env.XUMM_API_KEY || process.env.XAMAN_API_KEY
@@ -67,6 +68,31 @@ export async function POST(req: NextRequest) {
     console.log('📤 Sending to Xaman API...')
     console.log('  Transaction:', JSON.stringify(txjson, null, 2))
     
+    // Build options object
+    const payloadOptions: any = {
+      submit: true,
+      multisign: false,
+      expire: 5,
+      network: xamanNetwork
+    }
+    
+    // ✅ ADD RETURN URL FOR MOBILE (critical fix!)
+    if (returnUrl) {
+      payloadOptions.return_url = {
+        web: returnUrl,
+        app: returnUrl  // Mobile Xaman app needs this!
+      }
+      console.log('✅ Using return URLs (web + app):', returnUrl)
+    } else {
+      // Fallback if frontend doesn't send it
+      const defaultReturnUrl = `${req.headers.get('origin') || 'https://polluxchess.vercel.app'}/waiting-room`
+      payloadOptions.return_url = {
+        web: defaultReturnUrl,
+        app: defaultReturnUrl
+      }
+      console.log('⚠️ No returnUrl from frontend, using default:', defaultReturnUrl)
+    }
+    
     // Create Xaman payload
     const xamanRes = await fetch('https://xumm.app/api/v1/platform/payload', {
       method: 'POST',
@@ -77,12 +103,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         txjson,
-        options: {
-          submit: true,
-          multisign: false,
-          expire: 5,
-          network: xamanNetwork
-        }
+        options: payloadOptions
       })
     })
 

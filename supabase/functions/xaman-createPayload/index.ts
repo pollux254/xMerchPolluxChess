@@ -114,12 +114,21 @@ serve(async (req: Request) => {
       expire: 300, // 5 minutes
     }
 
-    // USE THE RETURN URL FROM FRONTEND (not hardcoded!)
+    // FIXED: Use returnUrl for BOTH web and app (mobile needs app property!)
     if (returnUrl) {
       payloadOptions.return_url = {
         web: returnUrl,
+        app: returnUrl,  // <-- THIS IS THE FIX FOR MOBILE!
       }
-      console.log("Using returnUrl:", returnUrl)
+      console.log("✅ Using return URLs (web + app):", returnUrl)
+    } else {
+      // FALLBACK: If frontend doesn't send returnUrl, use default
+      const defaultReturnUrl = "https://polluxchess.vercel.app/waiting-room"
+      payloadOptions.return_url = {
+        web: defaultReturnUrl,
+        app: defaultReturnUrl,
+      }
+      console.log("⚠️ No returnUrl from frontend, using default:", defaultReturnUrl)
     }
 
     // Add webhook if Supabase URL is configured
@@ -135,6 +144,8 @@ serve(async (req: Request) => {
         identifier: `polluxchess-${Date.now()}`,
       },
     }
+
+    console.log("📤 Sending payload to Xaman with return_url:", payloadOptions.return_url)
 
     const response = await fetch("https://xumm.app/api/v1/platform/payload", {
       method: "POST",
@@ -156,7 +167,7 @@ serve(async (req: Request) => {
     }
 
     const data = await response.json()
-    console.log("Payload created:", data.uuid)
+    console.log("✅ Payload created:", data.uuid)
 
     return new Response(
       JSON.stringify({
