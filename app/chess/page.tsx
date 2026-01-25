@@ -813,7 +813,7 @@ export default function Chess() {
           destination: hookAddress,
           memo: JSON.stringify(tempMemoData),
           network: network,
-          returnUrl: `${window.location.origin}/waiting-room`
+          returnUrl: `${window.location.origin}/chess`
         })
       })
 
