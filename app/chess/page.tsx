@@ -106,9 +106,9 @@ export default function Chess() {
 
   // ✅ MOBILE: Check if returning from Xaman (payment OR login)
   useEffect(() => {
-    // Check for pending payment first
-    const pendingPayment = sessionStorage.getItem('pendingPayment')
-    console.log("🔍 [MOBILE CHECK] pendingPayment in sessionStorage:", !!pendingPayment)
+    // ✅ FIX: Use localStorage instead of sessionStorage (survives app switching)
+    const pendingPayment = localStorage.getItem('pendingPayment')
+    console.log("🔍 [MOBILE CHECK] pendingPayment in localStorage:", !!pendingPayment)
     
     if (pendingPayment) {
       console.log("📱 [MOBILE] Returned from Xaman payment - resuming...")
@@ -126,12 +126,12 @@ export default function Chess() {
         resumePaymentAfterMobileRedirect(paymentData)
       } catch (err) {
         console.error("❌ [MOBILE] Failed to parse pendingPayment:", err)
-        sessionStorage.removeItem('pendingPayment')
+        localStorage.removeItem('pendingPayment')
       }
       return // Exit early if handling payment
     }
     
-    // ✅ NEW: Check for pending login
+    // Check for pending login
     const waitingForLogin = sessionStorage.getItem('waitingForLogin')
     console.log("🔍 [MOBILE CHECK] waitingForLogin in sessionStorage:", !!waitingForLogin)
     
@@ -150,7 +150,7 @@ export default function Chess() {
     }
   }, [])
 
-  // ✅ NEW: Resume login after mobile redirect
+  // Resume login after mobile redirect
   async function resumeLoginAfterMobileRedirect(uuid: string) {
     try {
       setLoadingLogin(true)
@@ -259,8 +259,8 @@ export default function Chess() {
           if (result === "tesSUCCESS") {
             console.log("✅ Payment already completed and validated! Proceeding directly...")
             
-            // Clear pending payment
-            sessionStorage.removeItem('pendingPayment')
+            // ✅ FIX: Clear from localStorage
+            localStorage.removeItem('pendingPayment')
             
             // Join tournament directly
             console.log("✅ Joining tournament after confirmed mobile payment...")
@@ -384,8 +384,8 @@ export default function Chess() {
       
       await paymentPromise
       
-      // Clear pending payment
-      sessionStorage.removeItem('pendingPayment')
+      // ✅ FIX: Clear from localStorage
+      localStorage.removeItem('pendingPayment')
       
       // Join tournament
       console.log("✅ Joining tournament after mobile payment...")
@@ -416,7 +416,8 @@ export default function Chess() {
       
     } catch (err: any) {
       console.error("❌ Mobile payment resume error:", err)
-      sessionStorage.removeItem('pendingPayment')
+      // ✅ FIX: Clear from localStorage
+      localStorage.removeItem('pendingPayment')
       
       // User-friendly error messages
       let errorMessage = "Payment verification failed"
@@ -608,7 +609,7 @@ export default function Chess() {
       console.log("📱 Login device detection:", isMobile ? "MOBILE/TABLET" : "DESKTOP")
       
       sessionStorage.setItem("waitingForLogin", "true")
-      sessionStorage.setItem("signinUuid", uuid) // ✅ CRITICAL FIX: Store UUID for mobile resume
+      sessionStorage.setItem("signinUuid", uuid)
       
       let signinPopup: Window | null = null
       let popupCheckInterval: NodeJS.Timeout | null = null
@@ -941,8 +942,8 @@ export default function Chess() {
         // MOBILE/TABLET/PWA: Direct deep-link push to Xaman app (no browser popup/tab)
         console.log("📱 Mobile/Tablet/PWA: Direct push to Xaman app...")
         
-        // Store payment state so we can resume when user returns
-        sessionStorage.setItem('pendingPayment', JSON.stringify({
+        // ✅ FIX: Store payment state in localStorage (survives app switching!)
+        localStorage.setItem('pendingPayment', JSON.stringify({
           uuid,
           websocketUrl,
           tournamentData: {
