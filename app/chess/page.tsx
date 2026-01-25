@@ -132,17 +132,73 @@ export default function Chess() {
         
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
-          console.log("📡 Mobile return - WebSocket:", status)
+          console.log("📡 Mobile return - WebSocket:", JSON.stringify(status, null, 2))
           
-          if (status.signed === true && !txValidated) {
-            console.log("✅ Payment confirmed after mobile return!")
-            txValidated = true
+          // User rejected
+          if (status.signed === false) {
             clearTimeout(timeoutId)
             ws.close()
-            resolve(true)
-          } else if (status.signed === false) {
             reject(new Error("Payment rejected"))
+            return
           }
+          
+          // ✅ COMPREHENSIVE CHECK: Multiple ways to detect success (same as desktop)
+          const shouldCheckResult = 
+            status.signed === true ||
+            status.payload_resolved === true ||
+            status.resolved === true ||
+            status.dispatched === true
+
+          if (shouldCheckResult && !txValidated) {
+            // Try multiple ways to get the result
+            const result = status.result?.engine_result || 
+                           status.meta?.TransactionResult ||
+                           status.response?.engine_result
+
+            if (result) {
+              console.log("📊 Transaction result:", result)
+              
+              if (result === "tesSUCCESS") {
+                txValidated = true
+                clearTimeout(timeoutId)
+                console.log("✅ VALIDATED on ledger after mobile return!")
+                ws.close()
+                resolve(true)
+              } else if (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter")) {
+                // Transaction failed
+                clearTimeout(timeoutId)
+                console.error("❌ TX FAILED:", result)
+                ws.close()
+                reject(new Error(`Transaction failed: ${result}`))
+              } else {
+                console.log("⏳ Waiting for final result...")
+              }
+            } else if (status.signed === true) {
+              // ✅ FALLBACK: Signed but no result yet - wait a bit then accept
+              console.log("✍️ Signed on mobile return, waiting 3 seconds for ledger confirmation...")
+              setTimeout(() => {
+                if (!txValidated) {
+                  console.log("⏰ Accepting payment after 3 second delay (mobile)...")
+                  txValidated = true
+                  clearTimeout(timeoutId)
+                  ws.close()
+                  resolve(true)
+                }
+              }, 3000)
+            }
+          }
+        }
+
+        ws.onerror = (error) => {
+          console.error("❌ Mobile WebSocket error:", error)
+          clearTimeout(timeoutId)
+          if (!txValidated) {
+            reject(new Error("Connection error"))
+          }
+        }
+
+        ws.onclose = () => {
+          console.log("🔌 Mobile WebSocket closed")
         }
       })
       
@@ -159,15 +215,44 @@ export default function Chess() {
         body: JSON.stringify(paymentData.tournamentData)
       })
       
-      if (joinRes.ok) {
-        const joinData = await joinRes.json()
-        window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+      if (!joinRes.ok) {
+        const errorText = await joinRes.text()
+        console.error("❌ Join API failed after mobile payment:", errorText)
+        throw new Error(`Failed to join tournament: ${errorText}`)
+      }
+
+      const joinData = await joinRes.json()
+      console.log("✅ Joined tournament after mobile payment:", joinData.tournamentId)
+      
+      // Check for already joined
+      if (joinRes.status === 409 && joinData.tournamentId) {
+        console.log("⚠️ Player already in tournament:", joinData.tournamentId)
+        alert("You're already in a tournament!\n\nRedirecting...")
       }
       
-    } catch (err) {
-      console.error("Mobile payment resume error:", err)
+      // Redirect to waiting room
+      console.log("🚀 Redirecting to waiting room from mobile...")
+      window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+      
+    } catch (err: any) {
+      console.error("❌ Mobile payment resume error:", err)
       sessionStorage.removeItem('pendingPayment')
-      alert("Payment verification failed. Please try again.")
+      
+      // User-friendly error messages (same as desktop)
+      let errorMessage = "Payment verification failed"
+      if (err.message.includes("rejected")) {
+        errorMessage = "Payment was cancelled"
+      } else if (err.message.includes("timed out") || err.message.includes("timeout")) {
+        errorMessage = "Payment request expired"
+      } else if (err.message.includes("Failed to join tournament")) {
+        errorMessage = "Payment succeeded but failed to join tournament - contact support"
+      } else if (err.message.includes("Connection error")) {
+        errorMessage = "Connection error - please try again"
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      alert(`❌ ${errorMessage}\n\nPlease try again.`)
       setLoadingPay(false)
     }
   }
