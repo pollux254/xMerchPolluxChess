@@ -550,28 +550,53 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // STEP 2: Open Xaman safely on ALL devices
-      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
-      
-      let xamanPopup: Window | null = null
-      
-      console.log(isMobileDevice ? "📱 Mobile device detected" : "💻 Desktop detected")
-      console.log("🔓 Opening Xaman in new tab/window...")
-      
-      xamanPopup = window.open(nextUrl, "_blank")
-      
-      if (!xamanPopup) {
-        console.warn("⚠️ New tab/window was blocked")
-        const userConfirm = confirm(
-          "⚠️ New tab was blocked!\n\nPlease:\n" +
-          "1. Allow popups/new tabs for this site\n" +
-          "2. Or open Xaman manually and check for pending request\n\n" +
-          "Click OK to keep waiting here for confirmation."
-        )
-        if (!userConfirm) {
-          throw new Error("Payment cancelled by user")
-        }
-      }
+// STEP 2: Open Xaman correctly by device type
+const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
+
+let xamanPopup: Window | null = null
+
+console.log(isMobileDevice ? "📱 Mobile device detected" : "💻 Desktop detected")
+
+if (isMobileDevice) {
+  // MOBILE: Direct deep-link push to Xaman app (no browser popup/tab)
+  console.log("📱 Mobile: Direct push to Xaman app...")
+  
+  // Store payment state so we can resume when user returns
+  sessionStorage.setItem('pendingPayment', JSON.stringify({
+    uuid,
+    websocketUrl,
+    tournamentData: {
+      playerAddress: playerID,
+      tournamentSize: selectedSize,
+      entryFee: selectedFee,
+      currency: selectedAsset.currency,
+      issuer: selectedAsset.issuer
+    }
+  }))
+
+  // Direct push - this should open Xaman app immediately
+  window.location.href = nextUrl
+
+  // Function exits here - page will reload/continue when user returns from Xaman
+  return
+
+} else {
+  // DESKTOP/LAPTOP: Safe popup
+  console.log("💻 Desktop: Opening Xaman popup...")
+  xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
+  
+  if (!xamanPopup) {
+    console.warn("⚠️ Popup blocked on desktop")
+    const userConfirm = confirm(
+      "⚠️ Popup was blocked!\n\n" +
+      "Please allow popups for this site or open Xaman manually.\n\n" +
+      "Click OK to keep waiting here."
+    )
+    if (!userConfirm) {
+      throw new Error("Payment cancelled by user")
+    }
+  }
+}
 
       console.log("⏳ Waiting for payment confirmation via WebSocket...")
 
@@ -810,7 +835,7 @@ export default function Chess() {
             </button>
             <button onClick={() => setThemeValue("dark")} className={`rounded-full p-2 transition-all ${theme === "dark" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} aria-label="Dark theme">
               <Moon className="h-5 w-5" />
-            </button>
+            </button
           </div>
         </div>
       </div>
