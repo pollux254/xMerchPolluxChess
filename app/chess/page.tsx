@@ -62,6 +62,48 @@ export default function Chess() {
     ? 'rpbvh5LmrV17BVCu5fAc1ybKev1pFa8evh'
     : (process.env.NEXT_PUBLIC_HOOK_ADDRESS_MAINNET || 'rYOUR_MAINNET_HOOK_ADDRESS')
 
+  // 📱 COMPREHENSIVE DEVICE DETECTION
+  const isMobileOrTablet = (): boolean => {
+    if (typeof window === 'undefined') return false
+
+    // Check 1: PWA/Standalone mode (user installed as app)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                        (window.navigator as any).standalone === true ||
+                        document.referrer.includes('android-app://')
+
+    // Check 2: Touch capability
+    const hasTouch = 'ontouchstart' in window || 
+                    navigator.maxTouchPoints > 0
+
+    // Check 3: User Agent (comprehensive list)
+    const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile|tablet|kindle|silk|playbook|bb10|meego|windows phone/i
+    const isMobileUA = mobileRegex.test(navigator.userAgent.toLowerCase())
+
+    // Check 4: Screen size (tablets and phones typically < 1024px)
+    const isSmallScreen = window.innerWidth <= 1024
+
+    // Check 5: Device orientation API exists (mobile/tablet feature)
+    const hasOrientation = 'orientation' in window
+
+    // Combine signals: If standalone OR (mobile UA and touch) OR (small screen and touch and orientation)
+    const isMobile = isStandalone || 
+                    (isMobileUA && hasTouch) || 
+                    (isSmallScreen && hasTouch && hasOrientation) ||
+                    isMobileUA
+
+    console.log('🔍 Device Detection:', {
+      isStandalone,
+      hasTouch,
+      isMobileUA,
+      isSmallScreen,
+      hasOrientation,
+      finalDecision: isMobile ? 'MOBILE/TABLET' : 'DESKTOP',
+      userAgent: navigator.userAgent
+    })
+
+    return isMobile
+  }
+
   // ✅ MOBILE: Check if returning from Xaman payment
   useEffect(() => {
     const pendingPayment = sessionStorage.getItem('pendingPayment')
@@ -296,9 +338,9 @@ export default function Chess() {
         return
       }
 
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      const isMobile = isMobileOrTablet()
       
-      console.log("📱 Device detection:", isMobile ? "MOBILE" : "DESKTOP")
+      console.log("📱 Login device detection:", isMobile ? "MOBILE/TABLET" : "DESKTOP")
       
       sessionStorage.setItem("waitingForLogin", "true")
       
@@ -307,10 +349,12 @@ export default function Chess() {
       let timeoutId: NodeJS.Timeout | null = null
       
       if (isMobile) {
-        console.log("📱 Mobile detected - Direct redirect to Xaman app")
+        console.log("📱 Mobile/Tablet/PWA detected - Direct redirect to Xaman app")
         window.location.href = nextUrl
+        // Exit early - will resume when user returns from Xaman
+        return
       } else {
-        console.log("💻 Desktop detected - Opening popup")
+        console.log("💻 Desktop detected - Opening popup window")
         signinPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
         if (!signinPopup) {
@@ -619,53 +663,53 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-// STEP 2: Open Xaman correctly by device type
-const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(navigator.userAgent.toLowerCase())
+      // ✅ STEP 2: Open Xaman correctly by device type using comprehensive detection
+      const isMobileDevice = isMobileOrTablet()
+      
+      let xamanPopup: Window | null = null
 
-let xamanPopup: Window | null = null
+      console.log("📱 Payment device detection:", isMobileDevice ? "MOBILE/TABLET/PWA" : "DESKTOP")
 
-console.log(isMobileDevice ? "📱 Mobile device detected" : "💻 Desktop detected")
+      if (isMobileDevice) {
+        // MOBILE/TABLET/PWA: Direct deep-link push to Xaman app (no browser popup/tab)
+        console.log("📱 Mobile/Tablet/PWA: Direct push to Xaman app...")
+        
+        // Store payment state so we can resume when user returns
+        sessionStorage.setItem('pendingPayment', JSON.stringify({
+          uuid,
+          websocketUrl,
+          tournamentData: {
+            playerAddress: playerID,
+            tournamentSize: selectedSize,
+            entryFee: selectedFee,
+            currency: selectedAsset.currency,
+            issuer: selectedAsset.issuer
+          }
+        }))
 
-if (isMobileDevice) {
-  // MOBILE: Direct deep-link push to Xaman app (no browser popup/tab)
-  console.log("📱 Mobile: Direct push to Xaman app...")
-  
-  // Store payment state so we can resume when user returns
-  sessionStorage.setItem('pendingPayment', JSON.stringify({
-    uuid,
-    websocketUrl,
-    tournamentData: {
-      playerAddress: playerID,
-      tournamentSize: selectedSize,
-      entryFee: selectedFee,
-      currency: selectedAsset.currency,
-      issuer: selectedAsset.issuer
-    }
-  }))
+        // Direct push - this should open Xaman app immediately
+        window.location.href = nextUrl
 
-  // Direct push - this should open Xaman app immediately
-  window.location.href = nextUrl
+        // Function exits here - page will reload/continue when user returns from Xaman
+        return
 
-  // Function exits here - page will reload/continue when user returns from Xaman
-  return
-
-} else {
-  // DESKTOP/LAPTOP: Safe popup
-  console.log("💻 Desktop: Opening Xaman popup...")
-  xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
-  
-  if (!xamanPopup) {
-    console.warn("⚠️ Popup blocked on desktop")
-    const userConfirm = confirm(
-      "⚠️ Popup was blocked!\n\n" +
-      "Please allow popups for this site or open Xaman manually.\n\n" +
-      "Click OK to keep waiting here."
-    )
-    if (!userConfirm) {
-      throw new Error("Payment cancelled by user")
-    }
-  }
-}
+      } else {
+        // DESKTOP/LAPTOP: Safe popup window
+        console.log("💻 Desktop: Opening Xaman popup window...")
+        xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
+        
+        if (!xamanPopup) {
+          console.warn("⚠️ Popup blocked on desktop")
+          const userConfirm = confirm(
+            "⚠️ Popup was blocked!\n\n" +
+            "Please allow popups for this site or open Xaman manually.\n\n" +
+            "Click OK to keep waiting here."
+          )
+          if (!userConfirm) {
+            throw new Error("Payment cancelled by user")
+          }
+        }
+      }
       console.log("⏳ Waiting for payment confirmation via WebSocket...")
 
       // ✅ STEP 3: Wait for ledger validation
