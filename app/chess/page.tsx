@@ -107,12 +107,28 @@ export default function Chess() {
   // ✅ MOBILE: Check if returning from Xaman payment
   useEffect(() => {
     const pendingPayment = sessionStorage.getItem('pendingPayment')
+    console.log("🔍 [MOBILE CHECK] pendingPayment in sessionStorage:", !!pendingPayment)
+    
     if (pendingPayment) {
-      console.log("📱 Returned from Xaman payment - resuming...")
-      const paymentData = JSON.parse(pendingPayment)
+      console.log("📱 [MOBILE] Returned from Xaman payment - resuming...")
+      console.log("📱 [MOBILE] Raw pendingPayment:", pendingPayment)
       
-      // Resume WebSocket listening
-      resumePaymentAfterMobileRedirect(paymentData)
+      try {
+        const paymentData = JSON.parse(pendingPayment)
+        console.log("📱 [MOBILE] Parsed payment data:", {
+          uuid: paymentData.uuid,
+          hasWebsocketUrl: !!paymentData.websocketUrl,
+          hasTournamentData: !!paymentData.tournamentData
+        })
+        
+        // Resume payment verification
+        resumePaymentAfterMobileRedirect(paymentData)
+      } catch (err) {
+        console.error("❌ [MOBILE] Failed to parse pendingPayment:", err)
+        sessionStorage.removeItem('pendingPayment')
+      }
+    } else {
+      console.log("ℹ️ [MOBILE] No pending payment found")
     }
   }, [])
 
