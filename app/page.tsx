@@ -25,16 +25,43 @@ export default function Home() {
     }
   }, [])
 
-  // ✅ NEW: Check if user just logged in from Xaman and redirect to /chess
+  // ✅ NEW: Check if waiting for login and poll until complete
   useEffect(() => {
-    const playerID = localStorage.getItem("playerID")
     const waitingForLogin = sessionStorage.getItem('waitingForLogin')
     
-    // If user has playerID (logged in) and was waiting for login, redirect to chess
-    if (playerID && waitingForLogin) {
-      console.log("✅ User authenticated, redirecting to /chess...")
-      sessionStorage.removeItem('waitingForLogin')
-      window.location.href = '/chess'
+    if (waitingForLogin) {
+      console.log("🔄 Detected pending login, showing loading state...")
+      setLoading(true)
+      
+      // Poll for playerID to be set (chess page is handling the actual login)
+      const pollInterval = setInterval(() => {
+        const playerID = localStorage.getItem("playerID")
+        
+        if (playerID) {
+          console.log("✅ Login completed! PlayerID found:", playerID)
+          clearInterval(pollInterval)
+          sessionStorage.removeItem('waitingForLogin')
+          setLoading(false)
+          
+          // Redirect to chess page
+          console.log("🚀 Redirecting to /chess...")
+          window.location.href = '/chess'
+        }
+      }, 500) // Check every 500ms
+      
+      // Timeout after 30 seconds
+      const timeoutId = setTimeout(() => {
+        clearInterval(pollInterval)
+        sessionStorage.removeItem('waitingForLogin')
+        setLoading(false)
+        alert("Login verification timed out. Please try again.")
+      }, 30000)
+      
+      // Cleanup on unmount
+      return () => {
+        clearInterval(pollInterval)
+        clearTimeout(timeoutId)
+      }
     }
   }, [])
 
@@ -80,6 +107,22 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col">
+      {/* Login Loading Modal - Shows when returning from Xaman */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100]">
+          <div className="bg-card/90 backdrop-blur-xl p-8 rounded-3xl max-w-md mx-4 text-center border border-border shadow-2xl">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary border-t-transparent mx-auto mb-4"></div>
+            <h2 className="text-2xl font-bold mb-2">Verifying Login...</h2>
+            <p className="text-muted-foreground">
+              Please wait while we confirm your sign-in
+            </p>
+            <p className="text-sm text-muted-foreground mt-4">
+              This should only take a few seconds
+            </p>
+          </div>
+        </div>
+      )}
+      
       {/* Theme Switcher */}
       <div className="fixed top-4 left-4 md:top-6 md:right-6 md:left-auto z-50 flex gap-2 rounded-full border border-border bg-card/80 backdrop-blur-sm p-2 shadow-lg">
         <button
