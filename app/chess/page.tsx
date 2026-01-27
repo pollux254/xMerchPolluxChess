@@ -211,6 +211,7 @@ export default function Chess() {
       while (!walletAddress && attempts < maxAttempts) {
         attempts++
         console.log(`🔄 Attempt ${attempts}/${maxAttempts} to fetch login status...`)
+        console.log(`📍 Fetching payload for UUID: ${uuid}`)
         
         try {
           const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
@@ -219,7 +220,11 @@ export default function Chess() {
             body: JSON.stringify({ uuid }),
           })
 
+          console.log(`📡 API Response Status: ${payloadRes.status} ${payloadRes.statusText}`)
+
           if (!payloadRes.ok) {
+            const errorText = await payloadRes.text()
+            console.error(`❌ API Error Response: ${errorText}`)
             console.warn(`⚠️ API returned ${payloadRes.status}, will retry...`)
             await new Promise(resolve => setTimeout(resolve, 500))
             continue
@@ -227,6 +232,13 @@ export default function Chess() {
           
           const payloadData = await payloadRes.json()
           console.log(`📊 Login payload status (attempt ${attempts}):`, JSON.stringify(payloadData, null, 2))
+          console.log(`🔍 Checking for account in:`)
+          console.log(`  - payloadData.account: ${payloadData.account || 'NOT FOUND'}`)
+          console.log(`  - payloadData.response?.account: ${payloadData.response?.account || 'NOT FOUND'}`)
+          console.log(`  - payloadData.meta?.account: ${payloadData.meta?.account || 'NOT FOUND'}`)
+          console.log(`  - payloadData.response?.resolvedAccount: ${payloadData.response?.resolvedAccount || 'NOT FOUND'}`)
+          console.log(`  - payloadData.signed: ${payloadData.signed}`)
+          console.log(`  - payloadData.meta?.signed: ${payloadData.meta?.signed}`)
 
           // ✅ CHECK 1: Was it rejected?
           if (payloadData.response?.rejected === true || payloadData.meta?.rejected === true) {
