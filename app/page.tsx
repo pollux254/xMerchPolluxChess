@@ -25,6 +25,19 @@ export default function Home() {
     }
   }, [])
 
+  // ✅ NEW: Check if user just logged in from Xaman and redirect to /chess
+  useEffect(() => {
+    const playerID = localStorage.getItem("playerID")
+    const waitingForLogin = sessionStorage.getItem('waitingForLogin')
+    
+    // If user has playerID (logged in) and was waiting for login, redirect to chess
+    if (playerID && waitingForLogin) {
+      console.log("✅ User authenticated, redirecting to /chess...")
+      sessionStorage.removeItem('waitingForLogin')
+      window.location.href = '/chess'
+    }
+  }, [])
+
   const setThemeValue = (newTheme: Theme) => {
     setTheme(newTheme)
     document.documentElement.classList.remove("light", "middle", "dark")
