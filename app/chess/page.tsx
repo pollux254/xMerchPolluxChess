@@ -194,35 +194,70 @@ export default function Chess() {
         signinUuid: sessionStorage.getItem('signinUuid')
       })
       
-      const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uuid }),
-      })
-
-      if (!payloadRes.ok) {
-        throw new Error(await payloadRes.text())
-      }
+      // ✅ MOBILE FIX: Add polling with retries (API might not have updated status immediately)
+      let walletAddress: string | null = null
+      let attempts = 0
+      const maxAttempts = 10 // Try for ~5 seconds total
       
-      const payloadData = await payloadRes.json()
-      console.log("📊 Login payload status:", JSON.stringify(payloadData, null, 2))
+      while (!walletAddress && attempts < maxAttempts) {
+        attempts++
+        console.log(`🔄 Attempt ${attempts}/${maxAttempts} to fetch login status...`)
+        
+        try {
+          const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ uuid }),
+          })
 
-      // ✅ CHECK 1: Was it rejected?
-      if (payloadData.response?.rejected === true || payloadData.meta?.rejected === true) {
-        console.log("❌ Login was rejected by user in Xaman")
-        throw new Error("Login was rejected")
+          if (!payloadRes.ok) {
+            console.warn(`⚠️ API returned ${payloadRes.status}, will retry...`)
+            await new Promise(resolve => setTimeout(resolve, 500))
+            continue
+          }
+          
+          const payloadData = await payloadRes.json()
+          console.log(`📊 Login payload status (attempt ${attempts}):`, JSON.stringify(payloadData, null, 2))
+
+          // ✅ CHECK 1: Was it rejected?
+          if (payloadData.response?.rejected === true || payloadData.meta?.rejected === true) {
+            console.log("❌ Login was rejected by user in Xaman")
+            throw new Error("Login was rejected")
+          }
+
+          // ✅ CHECK 2: Did it expire?
+          if (payloadData.expired === true || payloadData.meta?.expired === true) {
+            console.log("⏰ Login payload expired")
+            throw new Error("Login request expired")
+          }
+
+          // ✅ CHECK 3: Extract account from various possible locations
+          walletAddress = payloadData.account || 
+                         payloadData.response?.account ||
+                         payloadData.meta?.account ||
+                         payloadData.response?.resolvedAccount
+
+          if (walletAddress) {
+            console.log(`✅ Found wallet address on attempt ${attempts}:`, walletAddress)
+            break
+          } else {
+            console.log(`⏳ No account yet (attempt ${attempts}), retrying in 500ms...`)
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        } catch (err: any) {
+          // If it's a rejection/expiration error, throw immediately
+          if (err.message?.includes("rejected") || err.message?.includes("expired")) {
+            throw err
+          }
+          console.warn(`⚠️ Attempt ${attempts} failed:`, err.message)
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
       }
 
-      // ✅ CHECK 2: Did it expire?
-      if (payloadData.expired === true || payloadData.meta?.expired === true) {
-        console.log("⏰ Login payload expired")
-        throw new Error("Login request expired")
+      if (!walletAddress) {
+        console.error("❌ Failed to get wallet address after all retries")
+        throw new Error("Login verification timed out - please try again")
       }
-
-      // ✅ CHECK 3: Extract account from various possible locations
-      const walletAddress = payloadData.account || 
-                           payloadData.response?.account ||
-                           payloadData.meta?.account
 
       if (walletAddress) {
         console.log("✅ Login successful! Wallet:", walletAddress)
@@ -255,11 +290,6 @@ export default function Chess() {
         // Clear session flags
         sessionStorage.removeItem("waitingForLogin")
         sessionStorage.removeItem("signinUuid")
-        
-      } else if (payloadData.response?.rejected === true) {
-        throw new Error("Login was rejected")
-      } else {
-        throw new Error("No account found in signin response")
       }
       
     } catch (err: any) {
