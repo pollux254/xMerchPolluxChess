@@ -1407,6 +1407,21 @@ export default function Chess() {
         </div>
 
         <div className="flex flex-col gap-3">
+          {loadingLogin && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100]">
+              <div className="bg-card/90 backdrop-blur-xl p-8 rounded-3xl max-w-md mx-4 text-center border border-border shadow-2xl">
+                <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary border-t-transparent mx-auto mb-4"></div>
+                <h2 className="text-2xl font-bold mb-2">Connecting Wallet...</h2>
+                <p className="text-muted-foreground">
+                  Please complete the sign-in in Xaman
+                </p>
+                <p className="text-sm text-muted-foreground mt-4">
+                  Waiting for confirmation...
+                </p>
+              </div>
+            </div>
+          )}
+          
           {!playerID ? (
             <motion.button
               whileHover={{ scale: 1.02 }}
