@@ -104,9 +104,42 @@ export default function Chess() {
     return isMobile
   }
 
+  // ✅ NEW: Clean up stale payment states
+  const clearStuckPaymentState = () => {
+    const pendingPayment = localStorage.getItem('pendingPayment')
+    if (pendingPayment) {
+      try {
+        const data = JSON.parse(pendingPayment)
+        const createdAt = data.timestamp || 0
+        const now = Date.now()
+        const ageMinutes = (now - createdAt) / 1000 / 60
+        
+        // Clear if older than 10 minutes (payment should complete in < 5 min)
+        if (ageMinutes > 10) {
+          console.log(`🧹 Clearing stale payment (${ageMinutes.toFixed(1)} minutes old)`)
+          localStorage.removeItem('pendingPayment')
+          return true
+        }
+      } catch (err) {
+        console.error('❌ Error parsing pendingPayment:', err)
+        localStorage.removeItem('pendingPayment')
+        return true
+      }
+    }
+    return false
+  }
+
   // ✅ MOBILE: Check if returning from Xaman (payment OR login)
   useEffect(() => {
-    // ✅ FIX: Use localStorage instead of sessionStorage (survives app switching)
+    // ✅ STEP 1: Clean up any stale payment state FIRST
+    const wasStale = clearStuckPaymentState()
+    if (wasStale) {
+      alert("⚠️ Previous payment session expired.\n\nPlease try again.")
+      setLoadingPay(false)
+      return // Exit early, don't try to resume
+    }
+
+    // ✅ STEP 2: Check for actual pending payment
     const pendingPayment = localStorage.getItem('pendingPayment')
     console.log("🔍 [MOBILE CHECK] pendingPayment in localStorage:", !!pendingPayment)
     
@@ -234,6 +267,9 @@ export default function Chess() {
     try {
       setLoadingPay(true)
       console.log("🔄 Resuming payment after mobile redirect...")
+      console.log("⏰ Payment age:", ((Date.now() - (paymentData.timestamp || 0)) / 1000 / 60).toFixed(1), "minutes")
+      console.log("🌐 Network:", paymentData.network || 'unknown')
+      console.log("📦 Tournament data:", paymentData.tournamentData)
       
       // ✅ CRITICAL FIX: Check payload status via API FIRST
       // When user returns from Xaman, the payment may already be complete
@@ -251,52 +287,82 @@ export default function Chess() {
           const payloadStatus = await payloadRes.json()
           console.log("📊 Payload API status:", JSON.stringify(payloadStatus, null, 2))
           
-          // Check if payment already completed successfully
-          const result = payloadStatus.response?.result?.engine_result || 
-                        payloadStatus.meta?.TransactionResult ||
-                        payloadStatus.result?.engine_result
-          
-          if (result === "tesSUCCESS") {
-            console.log("✅ Payment already completed and validated! Proceeding directly...")
-            
-            // ✅ FIX: Clear from localStorage
+          // ✅ CHECK 1: Was it rejected by user?
+          if (payloadStatus.response?.rejected === true || payloadStatus.meta?.rejected === true) {
+            console.log("❌ Payment was rejected by user in Xaman")
             localStorage.removeItem('pendingPayment')
-            
-            // Join tournament directly
-            console.log("✅ Joining tournament after confirmed mobile payment...")
-            const joinRes = await fetch('/api/tournaments/join', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(paymentData.tournamentData)
-            })
-            
-            if (!joinRes.ok) {
-              const errorText = await joinRes.text()
-              console.error("❌ Join API failed:", errorText)
-              throw new Error(`Failed to join tournament: ${errorText}`)
-            }
-
-            const joinData = await joinRes.json()
-            console.log("✅ Joined tournament:", joinData.tournamentId)
-            
-            if (joinRes.status === 409 && joinData.tournamentId) {
-              console.log("⚠️ Player already in tournament:", joinData.tournamentId)
-              alert("You're already in a tournament!\n\nRedirecting...")
-            }
-            
-            // Redirect to waiting room
-            console.log("🚀 Redirecting to waiting room from mobile...")
-            window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
-            return // Exit early - success!
-          } else if (payloadStatus.response?.rejected === true) {
             throw new Error("Payment was rejected")
+          }
+          
+          // ✅ CHECK 2: Did the payload expire?
+          if (payloadStatus.expired === true || payloadStatus.meta?.expired === true) {
+            console.log("⏰ Payment payload expired (user took too long)")
+            localStorage.removeItem('pendingPayment')
+            throw new Error("Payment request expired")
+          }
+          
+          // ✅ CHECK 3: Is it still waiting for user action?
+          if (!payloadStatus.response && !payloadStatus.meta) {
+            console.log("⏳ Payment still pending, will use WebSocket to wait...")
+            // Continue to WebSocket fallback below
           } else {
-            console.log("⏳ Payment not complete yet, falling back to WebSocket polling...")
+            // ✅ CHECK 4: Did it succeed on ledger?
+            const result = payloadStatus.response?.result?.engine_result || 
+                          payloadStatus.meta?.TransactionResult ||
+                          payloadStatus.result?.engine_result
+            
+            if (result === "tesSUCCESS") {
+              console.log("✅ Payment already completed and validated on ledger!")
+              localStorage.removeItem('pendingPayment')
+              
+              // Join tournament directly (keep existing join code below)
+              console.log("✅ Joining tournament after confirmed mobile payment...")
+              const joinRes = await fetch('/api/tournaments/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(paymentData.tournamentData)
+              })
+              
+              if (!joinRes.ok) {
+                const errorText = await joinRes.text()
+                console.error("❌ Join API failed:", errorText)
+                throw new Error(`Failed to join tournament: ${errorText}`)
+              }
+
+              const joinData = await joinRes.json()
+              console.log("✅ Joined tournament:", joinData.tournamentId)
+              
+              if (joinRes.status === 409 && joinData.tournamentId) {
+                console.log("⚠️ Player already in tournament:", joinData.tournamentId)
+                alert("You're already in a tournament!\n\nRedirecting...")
+              }
+              
+              console.log("🚀 Redirecting to waiting room from mobile...")
+              window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
+              return // ✅ Exit early - success path complete!
+              
+            } else if (result && (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter"))) {
+              // Transaction failed on ledger (insufficient funds, etc.)
+              console.error("❌ Transaction failed on ledger:", result)
+              localStorage.removeItem('pendingPayment')
+              throw new Error(`Transaction failed: ${result}`)
+            } else {
+              // Some other result we don't recognize - log and try WebSocket
+              console.log("⚠️ Unexpected result, falling back to WebSocket:", result)
+            }
           }
         } else {
-          console.warn("⚠️ Could not check payload status, falling back to WebSocket")
+          console.warn("⚠️ Could not check payload status (HTTP error), falling back to WebSocket")
         }
-      } catch (apiError) {
+      } catch (apiError: any) {
+        // If it's one of OUR thrown errors (rejected, expired, failed), re-throw it
+        if (apiError.message?.includes("rejected") || 
+            apiError.message?.includes("expired") || 
+            apiError.message?.includes("Transaction failed:") ||
+            apiError.message?.includes("Failed to join tournament")) {
+          throw apiError // Re-throw to outer catch block
+        }
+        // Otherwise just log and continue to WebSocket fallback
         console.warn("⚠️ API check failed, falling back to WebSocket:", apiError)
       }
       
@@ -307,9 +373,13 @@ export default function Chess() {
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
+          console.log("⏱️ Payment WebSocket timeout (3 minutes)")
           ws.close()
-          reject(new Error("Payment timeout"))
-        }, 3 * 60 * 1000)
+          localStorage.removeItem('pendingPayment') // ✅ ADDED: Clean up on timeout
+          if (!txValidated) {
+            reject(new Error("Payment request timed out - please try again"))
+          }
+        }, 3 * 60 * 1000) // 3 minutes (was 5 before)
         
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
@@ -372,6 +442,7 @@ export default function Chess() {
         ws.onerror = (error) => {
           console.error("❌ Mobile WebSocket error:", error)
           clearTimeout(timeoutId)
+          localStorage.removeItem('pendingPayment') // ✅ ADDED: Clean up on error
           if (!txValidated) {
             reject(new Error("Connection error"))
           }
@@ -416,24 +487,38 @@ export default function Chess() {
       
     } catch (err: any) {
       console.error("❌ Mobile payment resume error:", err)
-      // ✅ FIX: Clear from localStorage
-      localStorage.removeItem('pendingPayment')
+      localStorage.removeItem('pendingPayment') // ✅ Ensure cleanup happens
       
-      // User-friendly error messages
+      // ✅ IMPROVED: More detailed error messages with context
       let errorMessage = "Payment verification failed"
+      let shouldRetry = true
+      
       if (err.message.includes("rejected")) {
-        errorMessage = "Payment was cancelled"
+        errorMessage = "Payment was cancelled in Xaman"
+        shouldRetry = false
+      } else if (err.message.includes("expired")) {
+        errorMessage = "Payment request expired (took too long)"
+        shouldRetry = true
       } else if (err.message.includes("timed out") || err.message.includes("timeout")) {
-        errorMessage = "Payment request expired"
+        errorMessage = "Payment verification timed out"
+        shouldRetry = true
       } else if (err.message.includes("Failed to join tournament")) {
-        errorMessage = "Payment succeeded but failed to join tournament - contact support"
+        errorMessage = "Payment succeeded but failed to join tournament\n\n⚠️ Contact support - you may need a refund"
+        shouldRetry = false
       } else if (err.message.includes("Connection error")) {
-        errorMessage = "Connection error - please try again"
+        errorMessage = "Connection error during verification"
+        shouldRetry = true
+      } else if (err.message.includes("Transaction failed:")) {
+        errorMessage = err.message
+        shouldRetry = true
+      } else if (err.message.includes("tecUNFUNDED") || err.message.includes("tecINSUFF")) {
+        errorMessage = "Insufficient funds for transaction"
+        shouldRetry = false
       } else if (err.message) {
         errorMessage = err.message
       }
       
-      alert(`❌ ${errorMessage}\n\nPlease try again.`)
+      alert(`❌ ${errorMessage}\n\n${shouldRetry ? 'Please try again.' : 'Returning to lobby.'}`)
       setLoadingPay(false)
     }
   }
@@ -946,6 +1031,8 @@ export default function Chess() {
         localStorage.setItem('pendingPayment', JSON.stringify({
           uuid,
           websocketUrl,
+          timestamp: Date.now(), // ✅ ADDED: Track when payment was created
+          network, // ✅ ADDED: Track which network (testnet/mainnet)
           tournamentData: {
             playerAddress: playerID,
             tournamentSize: selectedSize,
