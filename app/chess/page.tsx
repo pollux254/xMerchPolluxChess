@@ -189,6 +189,10 @@ export default function Chess() {
       setLoadingLogin(true)
       console.log("🔄 Resuming login after mobile redirect...")
       console.log("📞 Checking signin status via API (uuid:", uuid, ")")
+      console.log("🔍 Current sessionStorage state:", {
+        waitingForLogin: sessionStorage.getItem('waitingForLogin'),
+        signinUuid: sessionStorage.getItem('signinUuid')
+      })
       
       const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
         method: "POST",
@@ -203,9 +207,24 @@ export default function Chess() {
       const payloadData = await payloadRes.json()
       console.log("📊 Login payload status:", JSON.stringify(payloadData, null, 2))
 
-      if (payloadData.account) {
-        const walletAddress = payloadData.account
+      // ✅ CHECK 1: Was it rejected?
+      if (payloadData.response?.rejected === true || payloadData.meta?.rejected === true) {
+        console.log("❌ Login was rejected by user in Xaman")
+        throw new Error("Login was rejected")
+      }
 
+      // ✅ CHECK 2: Did it expire?
+      if (payloadData.expired === true || payloadData.meta?.expired === true) {
+        console.log("⏰ Login payload expired")
+        throw new Error("Login request expired")
+      }
+
+      // ✅ CHECK 3: Extract account from various possible locations
+      const walletAddress = payloadData.account || 
+                           payloadData.response?.account ||
+                           payloadData.meta?.account
+
+      if (walletAddress) {
         console.log("✅ Login successful! Wallet:", walletAddress)
         console.log("Creating Supabase session for wallet:", walletAddress)
         
