@@ -164,7 +164,7 @@ export default function Chess() {
       return // Exit early if handling payment
     }
     
-    // Check for pending login
+    // ✅ STEP 3: Check for pending login
     const waitingForLogin = sessionStorage.getItem('waitingForLogin')
     console.log("🔍 [MOBILE CHECK] waitingForLogin in sessionStorage:", !!waitingForLogin)
     
@@ -180,6 +180,15 @@ export default function Chess() {
         sessionStorage.removeItem('waitingForLogin')
         setLoadingLogin(false)
       }
+    }
+    
+    // ✅ STEP 4: If no pending actions but page just loaded, check if already logged in
+    // This handles the case where user is already authenticated (e.g., page refresh)
+    const savedID = localStorage.getItem("playerID")
+    if (savedID && !waitingForLogin && !pendingPayment && !playerID) {
+      console.log("✅ Found existing playerID, setting state:", savedID)
+      setPlayerID(savedID)
+      checkExistingTournament(savedID)
     }
   }, [])
 
