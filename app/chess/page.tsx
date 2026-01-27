@@ -129,8 +129,26 @@ export default function Chess() {
     return false
   }
 
-  // ✅ MOBILE: Check if returning from Xaman (payment OR login)
+  // ✅ NEW UUID-BASED LOGIN - Resume after mobile redirect
   useEffect(() => {
+    // Check if we're returning from mobile Xaman redirect for LOGIN
+    const waitingMobile = sessionStorage.getItem('xaman_waiting_mobile')
+    const uuid = sessionStorage.getItem('xaman_signin_uuid')
+    
+    if (waitingMobile === 'true' && uuid) {
+      console.log('[RESUME] Detected return from mobile Xaman for LOGIN')
+      console.log('[RESUME] UUID:', uuid)
+      
+      setLoadingLogin(true)
+      
+      // Clear the mobile flag
+      sessionStorage.removeItem('xaman_waiting_mobile')
+      
+      // Start verification
+      startLoginVerification(uuid)
+      return // Exit early
+    }
+    
     // ✅ STEP 1: Clean up any stale payment state FIRST
     const wasStale = clearStuckPaymentState()
     if (wasStale) {
@@ -164,28 +182,10 @@ export default function Chess() {
       return // Exit early if handling payment
     }
     
-    // ✅ STEP 3: Check for pending login
-    const waitingForLogin = sessionStorage.getItem('waitingForLogin')
-    console.log("🔍 [MOBILE CHECK] waitingForLogin in sessionStorage:", !!waitingForLogin)
-    
-    if (waitingForLogin) {
-      console.log("📱 [MOBILE] Returned from Xaman login - resuming...")
-      
-      const signinUuid = sessionStorage.getItem('signinUuid')
-      
-      if (signinUuid) {
-        resumeLoginAfterMobileRedirect(signinUuid)
-      } else {
-        console.error("❌ [MOBILE] No signinUuid found")
-        sessionStorage.removeItem('waitingForLogin')
-        setLoadingLogin(false)
-      }
-    }
-    
-    // ✅ STEP 4: If no pending actions but page just loaded, check if already logged in
+    // ✅ STEP 3: If no pending actions but page just loaded, check if already logged in
     // This handles the case where user is already authenticated (e.g., page refresh)
     const savedID = localStorage.getItem("playerID")
-    if (savedID && !waitingForLogin && !pendingPayment && !playerID) {
+    if (savedID && !pendingPayment && !playerID) {
       console.log("✅ Found existing playerID, setting state:", savedID)
       setPlayerID(savedID)
       checkExistingTournament(savedID)
@@ -730,185 +730,179 @@ export default function Chess() {
     }, 300)
   }
 
+  // ✅ NEW UUID-BASED LOGIN - Start verification polling
+  async function startLoginVerification(uuid: string) {
+    console.log('[VERIFY] Starting verification for UUID:', uuid)
+    
+    const maxAttempts = 60 // 60 seconds (1 attempt per second)
+    let attempts = 0
+    
+    const pollStatus = async (): Promise<boolean> => {
+      attempts++
+      console.log(`[VERIFY] Attempt ${attempts}/${maxAttempts}`)
+      
+      try {
+        const response = await fetch(`/api/auth/xaman/verify-signin/${uuid}`)
+        
+        if (!response.ok) {
+          console.error('[VERIFY] API error:', response.status)
+          return false
+        }
+        
+        const data = await response.json()
+        console.log('[VERIFY] Response:', data)
+        
+        // Check if signed
+        if (data.signed === true) {
+          console.log('[VERIFY] ✅ SIGNED!')
+          
+          // Check for account
+          if (!data.account) {
+            console.error('[VERIFY] ❌ Signed but no account!')
+            console.log('[VERIFY] Full data:', JSON.stringify(data, null, 2))
+            return false
+          }
+          
+          console.log('[VERIFY] ✅ Account found:', data.account)
+          
+          // Save to localStorage
+          localStorage.setItem('playerID', data.account)
+          console.log('[VERIFY] ✅ Saved to localStorage')
+          
+          // Clear session storage
+          sessionStorage.removeItem('xaman_signin_uuid')
+          sessionStorage.removeItem('xaman_login_timestamp')
+          sessionStorage.removeItem('xaman_waiting_mobile')
+          sessionStorage.removeItem('waitingForLogin')
+          sessionStorage.removeItem('signinUuid')
+          console.log('[VERIFY] ✅ Cleared sessionStorage')
+          
+          // Create profile
+          await getOrCreateProfile(data.account)
+          
+          // Update React state
+          setPlayerID(data.account)
+          setLoadingLogin(false)
+          
+          console.log('[VERIFY] ✅✅✅ LOGIN COMPLETE ✅✅✅')
+          alert(`Logged in successfully!\nWallet: ${data.account.slice(0,10)}...${data.account.slice(-6)}`)
+          return true
+          
+        } else if (data.signed === false) {
+          console.log('[VERIFY] ❌ User rejected sign-in')
+          throw new Error('Sign-in was rejected')
+          
+        } else {
+          // Still pending
+          console.log('[VERIFY] ⏳ Still pending...')
+          return false
+        }
+        
+      } catch (error) {
+        console.error('[VERIFY] Error during attempt:', error)
+        return false
+      }
+    }
+    
+    // Polling loop
+    const poll = async () => {
+      while (attempts < maxAttempts) {
+        const success = await pollStatus()
+        
+        if (success) {
+          return // Success! Exit
+        }
+        
+        // Wait 1 second before next attempt
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      
+      // Timeout
+      console.error('[VERIFY] ❌ Timeout after', maxAttempts, 'attempts')
+      setLoadingLogin(false)
+      alert('Login verification timed out. Please try again.')
+      sessionStorage.removeItem('xaman_signin_uuid')
+      sessionStorage.removeItem('xaman_login_timestamp')
+      sessionStorage.removeItem('xaman_waiting_mobile')
+      sessionStorage.removeItem('waitingForLogin')
+      sessionStorage.removeItem('signinUuid')
+    }
+    
+    poll()
+  }
+
+  // ✅ NEW UUID-BASED LOGIN - Main handler
   async function handleLogin() {
+    console.log('[LOGIN] Starting login flow')
+    setLoadingLogin(true)
+
     try {
-      setLoadingLogin(true)
-
-      const returnUrl = `${window.location.origin}/chess`
-
-      const res = await fetch("/api/auth/xaman/create-signin/xahau-signin", {
-        method: "POST",
+      // Step 1: Create sign-in request
+      console.log('[LOGIN] Creating Xaman sign-in request...')
+      const response = await fetch('/api/auth/xaman/create-signin/xahau-signin', {
+        method: 'POST',
         headers: { 
-          "Content-Type": "application/json",
-          "x-xahau-network": network
+          'Content-Type': 'application/json',
+          'x-xahau-network': network
         },
-        body: JSON.stringify({ returnUrl }),
+        body: JSON.stringify({ returnUrl: `${window.location.origin}/chess` }),
       })
 
-      if (!res.ok) {
-        console.error("Failed to create signin payload:", await res.text())
-        alert("Error preparing signin.")
-        return
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`)
       }
 
-      const data = await res.json()
-      const { nextUrl, websocketUrl, uuid } = data
+      const data = await response.json()
+      console.log('[LOGIN] Sign-in request created:', {
+        uuid: data.uuid,
+        hasNext: !!data.nextUrl,
+      })
 
-      if (!nextUrl || !websocketUrl || !uuid) {
-        alert("Missing Xaman details")
-        return
+      if (!data.uuid) {
+        throw new Error('No UUID returned from API')
       }
 
+      // Step 2: Store UUID for polling
+      const uuid = data.uuid
+      sessionStorage.setItem('xaman_signin_uuid', uuid)
+      sessionStorage.setItem('xaman_login_timestamp', Date.now().toString())
+      sessionStorage.setItem('waitingForLogin', 'true')
+      sessionStorage.setItem('signinUuid', uuid)
+      console.log('[LOGIN] UUID stored in sessionStorage:', uuid)
+
+      // Step 3: Check if mobile or desktop
       const isMobile = isMobileOrTablet()
-      
-      console.log("📱 Login device detection:", isMobile ? "MOBILE/TABLET" : "DESKTOP")
-      
-      sessionStorage.setItem("waitingForLogin", "true")
-      sessionStorage.setItem("signinUuid", uuid)
-      
-      let signinPopup: Window | null = null
-      let popupCheckInterval: NodeJS.Timeout | null = null
-      let timeoutId: NodeJS.Timeout | null = null
-      
-      if (isMobile) {
-        console.log("📱 Mobile/Tablet/PWA detected - Direct redirect to Xaman app")
-        window.location.href = nextUrl
-        // Exit early - will resume when user returns from Xaman
-        return
+      console.log('[LOGIN] Device type:', isMobile ? 'MOBILE' : 'DESKTOP')
+
+      if (isMobile && data.nextUrl) {
+        // MOBILE FLOW: Redirect to Xaman, then poll on return
+        console.log('[LOGIN] Mobile detected - redirecting to Xaman')
+        console.log('[LOGIN] Redirect URL:', data.nextUrl)
+        
+        // Mark that we're waiting for mobile return
+        sessionStorage.setItem('xaman_waiting_mobile', 'true')
+        
+        // Redirect to Xaman
+        window.location.href = data.nextUrl
+        
+        // Note: Code execution stops here due to redirect
+        // Polling will happen when user returns (see useEffect)
+        
       } else {
-        console.log("💻 Desktop detected - Opening popup window")
-        signinPopup = window.open(nextUrl, "_blank", "width=480,height=720")
-        
-        if (!signinPopup) {
-          alert("Popup blocked. Please allow popups for Xaman.")
-          setLoadingLogin(false)
-          return
-        }
-
-        popupCheckInterval = setInterval(() => {
-          if (signinPopup && signinPopup.closed) {
-            console.log("Signin popup was closed manually")
-            clearInterval(popupCheckInterval!)
-            if (timeoutId) clearTimeout(timeoutId)
-            ws.close()
-            setLoadingLogin(false)
-          }
-        }, 500)
-
-        timeoutId = setTimeout(() => {
-          if (signinPopup && !signinPopup.closed) {
-            console.log("Signin popup timeout - auto closing")
-            signinPopup.close()
-          }
-          if (popupCheckInterval) clearInterval(popupCheckInterval)
-          ws.close()
-          setLoadingLogin(false)
-          alert("Sign-in request expired. Please try again.")
-        }, 5 * 60 * 1000)
+        // DESKTOP FLOW: Start polling immediately
+        console.log('[LOGIN] Desktop detected - starting verification')
+        startLoginVerification(uuid)
       }
 
-      const ws = new WebSocket(websocketUrl)
-      ws.onmessage = async (event) => {
-        const status = JSON.parse(event.data)
-
-        if (status.signed === true) {
-          if (popupCheckInterval) clearInterval(popupCheckInterval)
-          if (timeoutId) clearTimeout(timeoutId)
-          
-          if (signinPopup && !signinPopup.closed) {
-            signinPopup.close()
-          }
-          
-          try {
-            const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ uuid }),
-            })
-
-            if (!payloadRes.ok) throw new Error(await payloadRes.text())
-            const payloadData = await payloadRes.json()
-
-            if (payloadData.account) {
-              const walletAddress = payloadData.account
-
-              console.log("Creating Supabase session for wallet:", walletAddress)
-              
-              const { data: authData, error: authError } = await supabase.auth.signInAnonymously({
-                options: {
-                  data: {
-                    wallet_address: walletAddress
-                  }
-                }
-              })
-
-              if (authError) {
-                console.error("Supabase auth error:", authError)
-                setPlayerID(walletAddress)
-                localStorage.setItem("playerID", walletAddress)
-                sessionStorage.removeItem("waitingForLogin")
-                
-                getOrCreateProfile(walletAddress)
-                
-                alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
-              } else {
-                console.log("✅ Supabase session created:", authData.session?.user.id)
-                console.log("✅ Wallet stored in metadata:", authData.session?.user.user_metadata.wallet_address)
-                
-                setPlayerID(walletAddress)
-                localStorage.setItem("playerID", walletAddress)
-                sessionStorage.removeItem("waitingForLogin")
-                
-                getOrCreateProfile(walletAddress)
-                
-                alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
-              }
-            }
-          } catch (err) {
-            console.error("Failed to get account:", err)
-            alert("Signed, but couldn't retrieve address.")
-          }
-          ws.close()
-        } else if (status.signed === false || status.expired) {
-          if (popupCheckInterval) clearInterval(popupCheckInterval)
-          if (timeoutId) clearTimeout(timeoutId)
-          
-          if (signinPopup && !signinPopup.closed) {
-            signinPopup.close()
-          }
-          
-          sessionStorage.removeItem("waitingForLogin")
-          alert(status.signed === false ? "Sign-in rejected." : "Sign-in expired.")
-          ws.close()
-          setLoadingLogin(false)
-        }
-      }
-
-      ws.onerror = (error) => {
-        console.error("WebSocket error:", error)
-        
-        if (popupCheckInterval) clearInterval(popupCheckInterval)
-        if (timeoutId) clearTimeout(timeoutId)
-        
-        if (signinPopup && !signinPopup.closed) {
-          signinPopup.close()
-        }
-        ws.close()
-        setLoadingLogin(false)
-      }
-
-      ws.onclose = () => {
-        console.log("WebSocket closed")
-        
-        if (popupCheckInterval) clearInterval(popupCheckInterval)
-        if (timeoutId) clearTimeout(timeoutId)
-      }
-    } catch (err) {
-      console.error("Login error:", err)
-      sessionStorage.removeItem("waitingForLogin")
-      alert("Login failed.")
-    } finally {
+    } catch (error) {
+      console.error('[LOGIN] Error:', error)
       setLoadingLogin(false)
+      alert(error instanceof Error ? error.message : 'Login failed')
+      sessionStorage.removeItem('xaman_signin_uuid')
+      sessionStorage.removeItem('xaman_login_timestamp')
+      sessionStorage.removeItem('xaman_waiting_mobile')
+      sessionStorage.removeItem('waitingForLogin')
+      sessionStorage.removeItem('signinUuid')
     }
   }
 
