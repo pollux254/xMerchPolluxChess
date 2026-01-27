@@ -9,7 +9,13 @@ type Theme = "light" | "middle" | "dark"
 
 export default function Home() {
   const [selected, setSelected] = useState<number>(10)
-  const [loading, setLoading] = useState(false)
+  // ✅ FIX: Check sessionStorage IMMEDIATELY on initialization
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !!sessionStorage.getItem('waitingForLogin')
+    }
+    return false
+  })
   const [theme, setTheme] = useState<Theme>("light")
   const [isFAQOpen, setIsFAQOpen] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
