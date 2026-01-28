@@ -938,7 +938,10 @@ async function handleLogin() {
           destination: hookAddress,
           memo: JSON.stringify(tempMemoData),
           network: network,
-          returnUrl: `${window.location.origin}/chess`
+          return_url: {
+            web: `${window.location.origin}/chess`,
+            app: `${window.location.origin}/chess`
+          }
         })
       })
 
@@ -963,8 +966,9 @@ async function handleLogin() {
       console.log("📱 Payment device detection:", isMobileDevice ? "MOBILE/TABLET/PWA" : "DESKTOP")
 
       if (isMobileDevice) {
-        console.log("📱 Mobile/Tablet/PWA: Direct push to Xaman app...")
-        
+        console.log("📱 Mobile/Tablet/PWA detected - preparing Xaman redirect...")
+
+        // Store pending state FIRST (critical for resume on return)
         localStorage.setItem('pendingPayment', JSON.stringify({
           uuid,
           websocketUrl,
@@ -979,9 +983,31 @@ async function handleLogin() {
           }
         }))
 
-        window.location.href = nextUrl
-        return
+        // Prefer next.always (universal link/deep link hybrid) → fallback to nextUrl
+        let redirectUrl = payloadData.next?.always
+        if (!redirectUrl && payloadData.nextUrl) {
+          redirectUrl = payloadData.nextUrl
+        }
 
+        if (!redirectUrl) {
+          console.error("❌ No valid redirect URL from Xaman payload")
+          throw new Error("Missing redirect URL from Xaman")
+        }
+
+        console.log("📱 Using redirect:", redirectUrl)
+
+        // Use replace() for cleaner history in PWA (no back-button weirdness)
+        window.location.replace(redirectUrl)
+
+        // Fallback safety net - if no app/browser focus change after ~3s
+        setTimeout(() => {
+          if (document.hasFocus() && document.visibilityState === 'visible') {
+            console.log("⚠️ Redirect may have failed - Xaman not opening?")
+            alert("Xaman didn't open automatically.\n\nPlease open the Xaman app manually and look for the sign request.\n\nOr try again from the page.")
+          }
+        }, 3000)
+
+        return  // Exit early - don't continue to desktop popup code
       } else {
         console.log("💻 Desktop: Opening Xaman popup window...")
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
