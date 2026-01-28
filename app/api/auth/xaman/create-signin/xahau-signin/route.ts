@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     console.log("🔐 [CREATE-SIGNIN] === REQUEST START ===")
     
-    // ✅ FIX: Safely parse JSON - handle empty body
+    // ✅ Safely parse JSON - handle empty body
     let body: any = {}
     try {
       const text = await req.text()
@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
       console.warn("🔐 [CREATE-SIGNIN] Body parse failed, using defaults:", parseError)
     }
     
-    const returnUrl = body.returnUrl || `${process.env.NEXT_PUBLIC_APP_URL || 'https://xmerch-polluxchess.vercel.app'}/chess`
+    // ✅ CRITICAL: Use callback page for mobile PWA
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xmerch-polluxchess.vercel.app'
+    const returnUrl = `${baseUrl}/auth/xaman-callback`
     
     console.log("🔐 [CREATE-SIGNIN] returnUrl:", returnUrl)
 
@@ -40,9 +42,9 @@ export async function POST(req: NextRequest) {
     console.log("🔐 [CREATE-SIGNIN] Network header:", header)
     console.log("🔐 [CREATE-SIGNIN] Network selected:", network)
 
-    // Check if using Supabase edge function
+    // ✅ ALWAYS use Supabase edge function (has webhook support)
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      console.log("🔐 [CREATE-SIGNIN] Using Supabase edge function")
+      console.log("🔐 [CREATE-SIGNIN] Using Supabase edge function with webhook")
       
       const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/xaman-signinPayload`
 
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           returnUrl: returnUrl,
           network,
+          useWebhook: true, // ✅ Enable webhook
         }),
       })
 
@@ -88,87 +91,12 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Fallback: Use local Xumm SDK
-    console.log("🔐 [CREATE-SIGNIN] Using local Xumm SDK")
-    
-    const apiKey = process.env.XAMAN_API_KEY || process.env.XUMM_API_KEY || process.env.NEXT_PUBLIC_XAMAN_XAHAU_API_KEY || ""
-    const apiSecret = process.env.XAMAN_API_SECRET || process.env.XUMM_API_SECRET || process.env.XAMAN_XAHAU_API_SECRET || ""
-    const networkId = getXahauNetworkId(network)
-
-    console.log("🔐 [CREATE-SIGNIN] SDK - NetworkID:", networkId, "for network:", network)
-    console.log("🔐 [CREATE-SIGNIN] Has API Key:", !!apiKey)
-    console.log("🔐 [CREATE-SIGNIN] Has API Secret:", !!apiSecret)
-
-    if (!apiKey || !apiSecret) {
-      console.error("🔐 [CREATE-SIGNIN] ❌ Missing credentials")
-      return NextResponse.json(
-        { ok: false, error: "Server configuration error: Missing Xaman credentials" },
-        { status: 500 }
-      )
-    }
-
-    const xaman = new XummSdk(apiKey, apiSecret)
-
-    const payload: XummTypes.XummPostPayloadBodyJson = {
-      txjson: {
-        TransactionType: "SignIn",
-        NetworkID: networkId,
-      },
-      options: {
-        submit: false,
-        expire: 300,
-        return_url: {
-          web: returnUrl,
-          app: returnUrl,
-        },
-      },
-      custom_meta: {
-        instruction: "Sign in to PolluxChess",
-        identifier: `polluxchess-signin-${Date.now()}`,
-      },
-    }
-
-    console.log("🔐 [CREATE-SIGNIN] Creating payload with return URLs:", returnUrl)
-
-    const response = await xaman.payload.create(payload)
-
-    if (!response) {
-      console.error("🔐 [CREATE-SIGNIN] ❌ No response from Xaman SDK")
-      return NextResponse.json(
-        { ok: false, error: "Failed to create sign-in request" },
-        { status: 500 }
-      )
-    }
-
-    console.log("🔐 [CREATE-SIGNIN] Xaman SDK response:", {
-      uuid: response.uuid,
-      hasNext: !!response.next,
-      hasRefs: !!response.refs
-    })
-
-    if (!response?.next?.always) {
-      console.error("🔐 [CREATE-SIGNIN] ❌ No next.always in response")
-      return NextResponse.json(
-        { ok: false, error: "Failed to create sign-in request" },
-        { status: 500 }
-      )
-    }
-
-    console.log("✅ [CREATE-SIGNIN] Payload created successfully")
-    console.log("✅ [CREATE-SIGNIN] UUID:", response.uuid)
-    console.log("✅ [CREATE-SIGNIN] Next URL:", response.next.always)
-
-    return NextResponse.json({
-      ok: true,
-      uuid: response.uuid,
-      next: {
-        always: response.next.always
-      },
-      refs: {
-        qr_png: response.refs?.qr_png,
-        websocket_status: response.refs?.websocket_status
-      }
-    })
+    // ❌ No Supabase - return error (we need webhook support)
+    console.error("🔐 [CREATE-SIGNIN] ❌ Supabase not configured")
+    return NextResponse.json(
+      { ok: false, error: "Server configuration error: Supabase required for mobile support" },
+      { status: 500 }
+    )
   } catch (err: any) {
     console.error("[CREATE-SIGNIN] ❌❌❌ EXCEPTION ❌❌❌")
     console.error("[CREATE-SIGNIN] Error:", err)
