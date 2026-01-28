@@ -442,4 +442,3 @@ The application has **3 CRITICAL vulnerabilities** that could lead to:
 ---
 
 **Report Generated:** January 27, 2026  
-**Next Review:** February 27, 2026
