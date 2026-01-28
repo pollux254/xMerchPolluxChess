@@ -7,64 +7,93 @@ export async function GET(
   const startTime = Date.now()
   
   try {
-    // ✅ FIXED: Await params in Next.js 15
-    const { uuid } = await context.params
-    console.log(`[API-VERIFY] Request for UUID: ${uuid}`)
+    // ✅ AWAIT PARAMS (Next.js 15 requirement)
+    console.log('[API-VERIFY] === REQUEST START ===')
+    console.log('[API-VERIFY] Awaiting params...')
+    
+    const params = await context.params
+    const uuid = params.uuid
+    
+    console.log(`[API-VERIFY] UUID received: ${uuid}`)
+    console.log(`[API-VERIFY] Timestamp: ${new Date().toISOString()}`)
 
-    // Validate UUID format (basic check)
+    // ✅ VALIDATE UUID
     if (!uuid || uuid.length < 10) {
-      console.error('[API-VERIFY] Invalid UUID format')
+      console.error('[API-VERIFY] ❌ Invalid UUID format')
       return NextResponse.json(
         { error: 'Invalid UUID', signed: false },
         { status: 400 }
       )
     }
 
-    // Check environment variables
-    if (!process.env.XAMAN_API_KEY || !process.env.XAMAN_API_SECRET) {
-      console.error('[API-VERIFY] Missing Xaman credentials')
+    // ✅ CHECK ENVIRONMENT VARIABLES
+    const apiKey = process.env.XAMAN_API_KEY
+    const apiSecret = process.env.XAMAN_API_SECRET
+    
+    console.log('[API-VERIFY] Checking credentials...')
+    console.log('[API-VERIFY] Has API Key:', !!apiKey, apiKey ? `(${apiKey.substring(0, 8)}...)` : '(missing)')
+    console.log('[API-VERIFY] Has API Secret:', !!apiSecret, apiSecret ? `(${apiSecret.substring(0, 8)}...)` : '(missing)')
+    
+    if (!apiKey || !apiSecret) {
+      console.error('[API-VERIFY] ❌ Missing Xaman credentials')
       return NextResponse.json(
-        { error: 'Server configuration error', signed: false },
+        { error: 'Server configuration error - missing credentials', signed: false },
         { status: 500 }
       )
     }
 
-    // Call Xaman API
-    console.log('[API-VERIFY] Calling Xaman API...')
+    console.log('[API-VERIFY] ✅ Credentials validated')
+
+    // ✅ CALL XAMAN API
     const xamanUrl = `https://xumm.app/api/v1/platform/payload/${uuid}`
+    console.log(`[API-VERIFY] Calling Xaman API: ${xamanUrl}`)
     
     const response = await fetch(xamanUrl, {
       method: 'GET',
       headers: {
-        'X-API-Key': process.env.XAMAN_API_KEY,
-        'X-API-Secret': process.env.XAMAN_API_SECRET,
+        'X-API-Key': apiKey,
+        'X-API-Secret': apiSecret,
+        'Content-Type': 'application/json',
       },
     })
 
-    console.log('[API-VERIFY] Xaman API status:', response.status)
+    console.log(`[API-VERIFY] Xaman API status: ${response.status} ${response.statusText}`)
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[API-VERIFY] Xaman API error:', errorText)
+      console.error('[API-VERIFY] ❌ Xaman API error:')
+      console.error('[API-VERIFY] Status:', response.status)
+      console.error('[API-VERIFY] Response:', errorText)
       return NextResponse.json(
-        { error: `Xaman API error: ${response.status}`, signed: false },
+        { 
+          error: `Xaman API error: ${response.status}`, 
+          signed: false,
+          details: errorText 
+        },
         { status: response.status }
       )
     }
 
-    // Parse response
+    // ✅ PARSE RESPONSE
+    console.log('[API-VERIFY] Parsing Xaman response...')
     const data = await response.json()
     
-    // Log the FULL response for debugging
     console.log('[API-VERIFY] === FULL XAMAN RESPONSE ===')
     console.log(JSON.stringify(data, null, 2))
     console.log('[API-VERIFY] === END RESPONSE ===')
 
-    // Extract key information
+    // ✅ EXTRACT DATA
     const isSigned = data.meta?.signed === true
     const isResolved = data.meta?.resolved === true
     
-    // Try to find account in multiple possible locations
+    console.log('[API-VERIFY] Metadata:', {
+      signed: isSigned,
+      resolved: isResolved,
+      hasResponse: !!data.response,
+      hasMeta: !!data.meta,
+    })
+    
+    // Try multiple locations for account
     let account = null
     
     // Location 1: response.account (most common)
@@ -85,7 +114,6 @@ export async function GET(
       console.log('[API-VERIFY] ✅ Found account in issued_user_token:', account)
     }
 
-    // ✅ ADDED: More fallback locations for account
     // Location 4: response.dispatched_to
     if (!account && data.response?.dispatched_to) {
       account = data.response.dispatched_to
@@ -98,7 +126,13 @@ export async function GET(
       console.log('[API-VERIFY] ✅ Found account in txjson.Account:', account)
     }
 
-    // Prepare response
+    if (account) {
+      console.log(`[API-VERIFY] ✅ Final account extracted: ${account}`)
+    } else {
+      console.log('[API-VERIFY] ⚠️ No account found in any known location')
+    }
+
+    // ✅ PREPARE RESPONSE
     const result = {
       signed: isSigned,
       resolved: isResolved,
@@ -107,21 +141,32 @@ export async function GET(
       processingTime: Date.now() - startTime,
     }
 
-    console.log('[API-VERIFY] Returning:', result)
+    console.log('[API-VERIFY] === RETURNING RESULT ===')
+    console.log(JSON.stringify(result, null, 2))
+    console.log('[API-VERIFY] === REQUEST END ===')
 
     return NextResponse.json(result, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache',
       }
     })
 
-  } catch (error) {
-    console.error('[API-VERIFY] Exception:', error)
+  } catch (error: any) {
+    console.error('[API-VERIFY] ❌❌❌ EXCEPTION CAUGHT ❌❌❌')
+    console.error('[API-VERIFY] Error type:', typeof error)
+    console.error('[API-VERIFY] Error name:', error?.name)
+    console.error('[API-VERIFY] Error message:', error?.message)
+    console.error('[API-VERIFY] Error stack:', error?.stack)
+    console.error('[API-VERIFY] Full error:', JSON.stringify(error, null, 2))
+    
     return NextResponse.json(
       { 
         error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error?.name || 'Unknown',
         signed: false,
         timestamp: Date.now(),
+        stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined,
       },
       { status: 500 }
     )
