@@ -37,36 +37,52 @@ export default function CallbackPage() {
 
         let attempts = 0
         
-        while (attempts < 30) {
-          attempts++
-          addDebug(`5. Attempt ${attempts}/30`)
-          setStatus(`Checking... (${attempts}/30)`)
-          
-          const response = await fetch(`/api/auth/xaman/verify-signin/${uuid}`)
-          const data = await response.json()
-          
-          addDebug(`6. signed=${data.signed}, account=${data.account ? 'YES' : 'NO'}`)
-          
-          if (data.signed && data.account) {
-            addDebug(`7. SUCCESS! ${data.account}`)
-            
-            localStorage.setItem('playerID', data.account)
-            sessionStorage.clear()
-            
-            setStatus('✅ Success!')
-            
-            setTimeout(() => {
-              router.push('/chess')
-            }, 1000)
-            return
-          }
-          
-          if (data.signed === false) {
-            throw new Error('Cancelled')
-          }
-          
-          await new Promise((r) => setTimeout(r, 1000))
-        }
+    while (attempts < 30) {
+  attempts++
+  addDebug(`5. Attempt ${attempts}/30`)
+  setStatus(`Checking... (${attempts}/30)`)
+  
+  try {
+    const response = await fetch(`/api/auth/xaman/verify-signin/${uuid}`)
+    
+    addDebug(`6. API status: ${response.status}`)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      addDebug(`7. API error: ${errorText}`)
+      await new Promise((r) => setTimeout(r, 1000))
+      continue
+    }
+    
+    const data = await response.json()
+    
+    addDebug(`8. Response: signed=${data.signed}, account=${data.account ? 'YES' : 'NO'}`)
+    
+    if (data.signed && data.account) {
+      addDebug(`9. SUCCESS! ${data.account}`)
+      
+      localStorage.setItem('playerID', data.account)
+      sessionStorage.clear()
+      
+      setStatus('✅ Success!')
+      
+      setTimeout(() => {
+        router.push('/chess')
+      }, 1000)
+      return
+    }
+    
+    if (data.signed === false) {
+      throw new Error('Cancelled')
+    }
+    
+  } catch (fetchError: unknown) {
+    const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError)
+    addDebug(`ERROR in fetch: ${errMsg}`)
+  }
+  
+  await new Promise((r) => setTimeout(r, 1000))
+}    
         
         throw new Error('Timeout')
         
