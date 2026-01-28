@@ -129,7 +129,7 @@ export default function Chess() {
     return false
   }
 
-  // ✅ SINGLE UNIFIED LOGIN SYSTEM - Resume after mobile redirect
+  // ✅ MOBILE LOGIN FIX - Resume after mobile redirect with timestamp check
   useEffect(() => {
     console.log('[MOUNT] Chess page mounted, checking for pending actions...')
     
@@ -138,18 +138,46 @@ export default function Chess() {
     // ============================================
     const waitingMobile = sessionStorage.getItem('xaman_waiting_mobile')
     const uuid = sessionStorage.getItem('xaman_signin_uuid')
+    const redirectTime = sessionStorage.getItem('xaman_redirect_time')
+    
+    console.log('[MOUNT] Login check:', {
+      waitingMobile,
+      hasUUID: !!uuid,
+      redirectTime,
+      timeSinceRedirect: redirectTime ? ((Date.now() - parseInt(redirectTime)) / 1000).toFixed(1) + 's' : 'N/A'
+    })
     
     if (waitingMobile === 'true' && uuid) {
       console.log('[RESUME LOGIN] Detected return from mobile Xaman for LOGIN')
       console.log('[RESUME LOGIN] UUID:', uuid)
       
+      // ✅ CHECK: Did we just return from Xaman? (within last 2 minutes)
+      if (redirectTime) {
+        const timeSinceRedirect = Date.now() - parseInt(redirectTime)
+        const twoMinutes = 2 * 60 * 1000
+        
+        if (timeSinceRedirect > twoMinutes) {
+          console.log('[RESUME LOGIN] ❌ Too old, clearing stale login attempt')
+          sessionStorage.removeItem('xaman_waiting_mobile')
+          sessionStorage.removeItem('xaman_signin_uuid')
+          sessionStorage.removeItem('xaman_redirect_time')
+          sessionStorage.removeItem('xaman_login_timestamp')
+          return // Don't proceed with stale login
+        }
+      }
+      
       setLoadingLogin(true)
       
-      // Clear the mobile flag
+      // Clear the mobile flag (but keep UUID for polling)
       sessionStorage.removeItem('xaman_waiting_mobile')
+      sessionStorage.removeItem('xaman_redirect_time')
       
-      // Start verification
-      startLoginVerification(uuid)
+      // ✅ CRITICAL: Small delay to ensure DOM is ready
+      setTimeout(() => {
+        console.log('[RESUME LOGIN] Starting verification after 500ms delay...')
+        startLoginVerification(uuid)
+      }, 500)
+      
       return // Exit early - login takes priority
     }
     
@@ -198,11 +226,20 @@ export default function Chess() {
       setPlayerID(savedID)
       checkExistingTournament(savedID)
     }
-  }, [])
+  }, []) // Empty dependency array - run once on mount
 
-  // ✅ NEW UUID-BASED LOGIN - Start verification polling
+  // ✅ MOBILE LOGIN FIX - Enhanced verification with better error handling
   async function startLoginVerification(uuid: string) {
     console.log('[VERIFY] Starting verification for UUID:', uuid)
+    
+    // ✅ VALIDATE: Make sure we have a valid UUID
+    if (!uuid || uuid.length < 10) {
+      console.error('[VERIFY] ❌ Invalid UUID:', uuid)
+      setLoadingLogin(false)
+      alert('Invalid login session. Please try again.')
+      sessionStorage.clear()
+      return
+    }
     
     const maxAttempts = 60 // 60 seconds (1 attempt per second)
     let attempts = 0
@@ -239,11 +276,9 @@ export default function Chess() {
           localStorage.setItem('playerID', data.account)
           console.log('[VERIFY] ✅ Saved to localStorage')
           
-          // Clear session storage
-          sessionStorage.removeItem('xaman_signin_uuid')
-          sessionStorage.removeItem('xaman_login_timestamp')
-          sessionStorage.removeItem('xaman_waiting_mobile')
-          console.log('[VERIFY] ✅ Cleared sessionStorage')
+          // Clear ALL session storage
+          sessionStorage.clear()
+          console.log('[VERIFY] ✅ Cleared all sessionStorage')
           
           // Create profile
           await getOrCreateProfile(data.account)
@@ -288,10 +323,8 @@ export default function Chess() {
       // Timeout
       console.error('[VERIFY] ❌ Timeout after', maxAttempts, 'attempts')
       setLoadingLogin(false)
+      sessionStorage.clear()
       alert('Login verification timed out. Please try again.')
-      sessionStorage.removeItem('xaman_signin_uuid')
-      sessionStorage.removeItem('xaman_login_timestamp')
-      sessionStorage.removeItem('xaman_waiting_mobile')
     }
     
     poll()
@@ -678,7 +711,7 @@ export default function Chess() {
     }, 300)
   }
 
-  // ✅ SINGLE UUID-BASED LOGIN - Main handler
+  // ✅ MOBILE LOGIN FIX - Enhanced login handler with timestamp
   async function handleLogin() {
     console.log('[LOGIN] Starting login flow')
     setLoadingLogin(true)
@@ -726,8 +759,11 @@ export default function Chess() {
         // Mark that we're waiting for mobile return
         sessionStorage.setItem('xaman_waiting_mobile', 'true')
         
-        // Redirect to Xaman
-        window.location.href = data.next.always
+        // ✅ CRITICAL FIX: Add timestamp to force reload detection
+        sessionStorage.setItem('xaman_redirect_time', Date.now().toString())
+        
+        // ✅ FIX: Use replace instead of href to prevent back button issues
+        window.location.replace(data.next.always)
         
       } else {
         // DESKTOP FLOW: Start polling immediately
@@ -742,6 +778,7 @@ export default function Chess() {
       sessionStorage.removeItem('xaman_signin_uuid')
       sessionStorage.removeItem('xaman_login_timestamp')
       sessionStorage.removeItem('xaman_waiting_mobile')
+      sessionStorage.removeItem('xaman_redirect_time')
     }
   }
 
