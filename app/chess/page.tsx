@@ -711,21 +711,23 @@ export default function Chess() {
     }, 300)
   }
 
-  // ✅ MOBILE LOGIN FIX - Enhanced login handler with timestamp
-  async function handleLogin() {
-    console.log('[LOGIN] Starting login flow')
-    setLoadingLogin(true)
+async function handleLogin() {
+  console.log('[LOGIN] Starting login flow')
+  setLoadingLogin(true)
 
-    try {
-      // Step 1: Create sign-in request
-      console.log('[LOGIN] Creating Xaman sign-in request...')
-      const response = await fetch('/api/auth/xaman/create-signin/xahau-signin', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-xahau-network': network
-        },
+  try {
+    // Step 1: Create sign-in request
+    console.log('[LOGIN] Creating Xaman sign-in request...')
+    const response = await fetch('/api/auth/xaman/create-signin/xahau-signin', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-xahau-network': network
+      },
+      body: JSON.stringify({ 
+        returnUrl: `${window.location.origin}/chess` 
       })
+    })
 
       if (!response.ok) {
         throw new Error(`API returned ${response.status}`)
