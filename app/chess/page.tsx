@@ -129,15 +129,19 @@ export default function Chess() {
     return false
   }
 
-  // ✅ NEW UUID-BASED LOGIN - Resume after mobile redirect
+  // ✅ SINGLE UNIFIED LOGIN SYSTEM - Resume after mobile redirect
   useEffect(() => {
-    // Check if we're returning from mobile Xaman redirect for LOGIN
+    console.log('[MOUNT] Chess page mounted, checking for pending actions...')
+    
+    // ============================================
+    // PRIORITY 1: Check for pending LOGIN
+    // ============================================
     const waitingMobile = sessionStorage.getItem('xaman_waiting_mobile')
     const uuid = sessionStorage.getItem('xaman_signin_uuid')
     
     if (waitingMobile === 'true' && uuid) {
-      console.log('[RESUME] Detected return from mobile Xaman for LOGIN')
-      console.log('[RESUME] UUID:', uuid)
+      console.log('[RESUME LOGIN] Detected return from mobile Xaman for LOGIN')
+      console.log('[RESUME LOGIN] UUID:', uuid)
       
       setLoadingLogin(true)
       
@@ -146,28 +150,31 @@ export default function Chess() {
       
       // Start verification
       startLoginVerification(uuid)
-      return // Exit early
+      return // Exit early - login takes priority
     }
     
-    // ✅ STEP 1: Clean up any stale payment state FIRST
+    // ============================================
+    // PRIORITY 2: Check for stale payment state
+    // ============================================
     const wasStale = clearStuckPaymentState()
     if (wasStale) {
       alert("⚠️ Previous payment session expired.\n\nPlease try again.")
       setLoadingPay(false)
-      return // Exit early, don't try to resume
+      return // Exit early
     }
 
-    // ✅ STEP 2: Check for actual pending payment
+    // ============================================
+    // PRIORITY 3: Check for pending PAYMENT
+    // ============================================
     const pendingPayment = localStorage.getItem('pendingPayment')
-    console.log("🔍 [MOBILE CHECK] pendingPayment in localStorage:", !!pendingPayment)
+    console.log("🔍 [PAYMENT CHECK] pendingPayment in localStorage:", !!pendingPayment)
     
     if (pendingPayment) {
-      console.log("📱 [MOBILE] Returned from Xaman payment - resuming...")
-      console.log("📱 [MOBILE] Raw pendingPayment:", pendingPayment)
+      console.log("📱 [PAYMENT] Returned from Xaman payment - resuming...")
       
       try {
         const paymentData = JSON.parse(pendingPayment)
-        console.log("📱 [MOBILE] Parsed payment data:", {
+        console.log("📱 [PAYMENT] Parsed payment data:", {
           uuid: paymentData.uuid,
           hasWebsocketUrl: !!paymentData.websocketUrl,
           hasTournamentData: !!paymentData.tournamentData
@@ -176,161 +183,118 @@ export default function Chess() {
         // Resume payment verification
         resumePaymentAfterMobileRedirect(paymentData)
       } catch (err) {
-        console.error("❌ [MOBILE] Failed to parse pendingPayment:", err)
+        console.error("❌ [PAYMENT] Failed to parse pendingPayment:", err)
         localStorage.removeItem('pendingPayment')
       }
       return // Exit early if handling payment
     }
     
-    // ✅ STEP 3: If no pending actions but page just loaded, check if already logged in
-    // This handles the case where user is already authenticated (e.g., page refresh)
+    // ============================================
+    // PRIORITY 4: Check if already logged in
+    // ============================================
     const savedID = localStorage.getItem("playerID")
-    if (savedID && !pendingPayment && !playerID) {
+    if (savedID && !playerID) {
       console.log("✅ Found existing playerID, setting state:", savedID)
       setPlayerID(savedID)
       checkExistingTournament(savedID)
     }
   }, [])
 
-  // Resume login after mobile redirect
-  async function resumeLoginAfterMobileRedirect(uuid: string) {
-    try {
-      setLoadingLogin(true)
-      console.log("🔄 Resuming login after mobile redirect...")
-      console.log("📞 Checking signin status via API (uuid:", uuid, ")")
-      console.log("🔍 Current sessionStorage state:", {
-        waitingForLogin: sessionStorage.getItem('waitingForLogin'),
-        signinUuid: sessionStorage.getItem('signinUuid')
-      })
+  // ✅ NEW UUID-BASED LOGIN - Start verification polling
+  async function startLoginVerification(uuid: string) {
+    console.log('[VERIFY] Starting verification for UUID:', uuid)
+    
+    const maxAttempts = 60 // 60 seconds (1 attempt per second)
+    let attempts = 0
+    
+    const pollStatus = async (): Promise<boolean> => {
+      attempts++
+      console.log(`[VERIFY] Attempt ${attempts}/${maxAttempts}`)
       
-      // ✅ MOBILE FIX: Add polling with retries (API might not have updated status immediately)
-      let walletAddress: string | null = null
-      let attempts = 0
-      const maxAttempts = 10 // Try for ~5 seconds total
-      
-      while (!walletAddress && attempts < maxAttempts) {
-        attempts++
-        console.log(`🔄 Attempt ${attempts}/${maxAttempts} to fetch login status...`)
-        console.log(`📍 Fetching payload for UUID: ${uuid}`)
+      try {
+        const response = await fetch(`/api/auth/xaman/verify-signin/${uuid}`)
         
-        try {
-          const payloadRes = await fetch("/api/auth/xaman/get-payload/xahau-payload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ uuid }),
-          })
-
-          console.log(`📡 API Response Status: ${payloadRes.status} ${payloadRes.statusText}`)
-
-          if (!payloadRes.ok) {
-            const errorText = await payloadRes.text()
-            console.error(`❌ API Error Response: ${errorText}`)
-            console.warn(`⚠️ API returned ${payloadRes.status}, will retry...`)
-            await new Promise(resolve => setTimeout(resolve, 500))
-            continue
+        if (!response.ok) {
+          console.error('[VERIFY] API error:', response.status)
+          return false
+        }
+        
+        const data = await response.json()
+        console.log('[VERIFY] Response:', data)
+        
+        // Check if signed
+        if (data.signed === true) {
+          console.log('[VERIFY] ✅ SIGNED!')
+          
+          // Check for account
+          if (!data.account) {
+            console.error('[VERIFY] ❌ Signed but no account!')
+            console.log('[VERIFY] Full data:', JSON.stringify(data, null, 2))
+            return false
           }
           
-          const payloadData = await payloadRes.json()
-          console.log(`📊 Login payload status (attempt ${attempts}):`, JSON.stringify(payloadData, null, 2))
-          console.log(`🔍 Checking for account in:`)
-          console.log(`  - payloadData.account: ${payloadData.account || 'NOT FOUND'}`)
-          console.log(`  - payloadData.response?.account: ${payloadData.response?.account || 'NOT FOUND'}`)
-          console.log(`  - payloadData.meta?.account: ${payloadData.meta?.account || 'NOT FOUND'}`)
-          console.log(`  - payloadData.response?.resolvedAccount: ${payloadData.response?.resolvedAccount || 'NOT FOUND'}`)
-          console.log(`  - payloadData.signed: ${payloadData.signed}`)
-          console.log(`  - payloadData.meta?.signed: ${payloadData.meta?.signed}`)
-
-          // ✅ CHECK 1: Was it rejected?
-          if (payloadData.response?.rejected === true || payloadData.meta?.rejected === true) {
-            console.log("❌ Login was rejected by user in Xaman")
-            throw new Error("Login was rejected")
-          }
-
-          // ✅ CHECK 2: Did it expire?
-          if (payloadData.expired === true || payloadData.meta?.expired === true) {
-            console.log("⏰ Login payload expired")
-            throw new Error("Login request expired")
-          }
-
-          // ✅ CHECK 3: Extract account from various possible locations
-          walletAddress = payloadData.account || 
-                         payloadData.response?.account ||
-                         payloadData.meta?.account ||
-                         payloadData.response?.resolvedAccount
-
-          if (walletAddress) {
-            console.log(`✅ Found wallet address on attempt ${attempts}:`, walletAddress)
-            break
-          } else {
-            console.log(`⏳ No account yet (attempt ${attempts}), retrying in 500ms...`)
-            await new Promise(resolve => setTimeout(resolve, 500))
-          }
-        } catch (err: any) {
-          // If it's a rejection/expiration error, throw immediately
-          if (err.message?.includes("rejected") || err.message?.includes("expired")) {
-            throw err
-          }
-          console.warn(`⚠️ Attempt ${attempts} failed:`, err.message)
-          await new Promise(resolve => setTimeout(resolve, 500))
-        }
-      }
-
-      if (!walletAddress) {
-        console.error("❌ Failed to get wallet address after all retries")
-        throw new Error("Login verification timed out - please try again")
-      }
-
-      if (walletAddress) {
-        console.log("✅ Login successful! Wallet:", walletAddress)
-        console.log("Creating Supabase session for wallet:", walletAddress)
-        
-        const { data: authData, error: authError } = await supabase.auth.signInAnonymously({
-          options: {
-            data: {
-              wallet_address: walletAddress
-            }
-          }
-        })
-
-        if (authError) {
-          console.error("Supabase auth error:", authError)
-          setPlayerID(walletAddress)
-          localStorage.setItem("playerID", walletAddress)
-          await getOrCreateProfile(walletAddress)
-          alert(`Logged in!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+          console.log('[VERIFY] ✅ Account found:', data.account)
+          
+          // Save to localStorage
+          localStorage.setItem('playerID', data.account)
+          console.log('[VERIFY] ✅ Saved to localStorage')
+          
+          // Clear session storage
+          sessionStorage.removeItem('xaman_signin_uuid')
+          sessionStorage.removeItem('xaman_login_timestamp')
+          sessionStorage.removeItem('xaman_waiting_mobile')
+          console.log('[VERIFY] ✅ Cleared sessionStorage')
+          
+          // Create profile
+          await getOrCreateProfile(data.account)
+          
+          // Update React state
+          setPlayerID(data.account)
+          setLoadingLogin(false)
+          
+          console.log('[VERIFY] ✅✅✅ LOGIN COMPLETE ✅✅✅')
+          alert(`Logged in successfully!\nWallet: ${data.account.slice(0,10)}...${data.account.slice(-6)}`)
+          return true
+          
+        } else if (data.signed === false) {
+          console.log('[VERIFY] ❌ User rejected sign-in')
+          throw new Error('Sign-in was rejected')
+          
         } else {
-          console.log("✅ Supabase session created:", authData.session?.user.id)
-          console.log("✅ Wallet stored in metadata:", authData.session?.user.user_metadata.wallet_address)
-          
-          setPlayerID(walletAddress)
-          localStorage.setItem("playerID", walletAddress)
-          await getOrCreateProfile(walletAddress)
-          alert(`Logged in successfully!\nWallet: ${walletAddress.slice(0,10)}...${walletAddress.slice(-6)}`)
+          // Still pending
+          console.log('[VERIFY] ⏳ Still pending...')
+          return false
         }
         
-        // Clear session flags
-        sessionStorage.removeItem("waitingForLogin")
-        sessionStorage.removeItem("signinUuid")
+      } catch (error) {
+        console.error('[VERIFY] Error during attempt:', error)
+        return false
       }
-      
-    } catch (err: any) {
-      console.error("❌ Mobile login resume error:", err)
-      
-      let errorMessage = "Login verification failed"
-      if (err.message.includes("rejected")) {
-        errorMessage = "Login was cancelled"
-      } else if (err.message) {
-        errorMessage = err.message
-      }
-      
-      alert(`❌ ${errorMessage}\n\nPlease try again.`)
-      
-      // Clear session flags
-      sessionStorage.removeItem("waitingForLogin")
-      sessionStorage.removeItem("signinUuid")
-    } finally {
-      setLoadingLogin(false)
     }
+    
+    // Polling loop
+    const poll = async () => {
+      while (attempts < maxAttempts) {
+        const success = await pollStatus()
+        
+        if (success) {
+          return // Success! Exit
+        }
+        
+        // Wait 1 second before next attempt
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      
+      // Timeout
+      console.error('[VERIFY] ❌ Timeout after', maxAttempts, 'attempts')
+      setLoadingLogin(false)
+      alert('Login verification timed out. Please try again.')
+      sessionStorage.removeItem('xaman_signin_uuid')
+      sessionStorage.removeItem('xaman_login_timestamp')
+      sessionStorage.removeItem('xaman_waiting_mobile')
+    }
+    
+    poll()
   }
 
   async function resumePaymentAfterMobileRedirect(paymentData: any) {
@@ -342,8 +306,6 @@ export default function Chess() {
       console.log("📦 Tournament data:", paymentData.tournamentData)
       
       // ✅ CRITICAL FIX: Check payload status via API FIRST
-      // When user returns from Xaman, the payment may already be complete
-      // WebSocket won't re-send old status, so we must check API
       console.log("📞 Checking payment status via API (uuid:", paymentData.uuid, ")")
       
       try {
@@ -374,7 +336,6 @@ export default function Chess() {
           // ✅ CHECK 3: Is it still waiting for user action?
           if (!payloadStatus.response && !payloadStatus.meta) {
             console.log("⏳ Payment still pending, will use WebSocket to wait...")
-            // Continue to WebSocket fallback below
           } else {
             // ✅ CHECK 4: Did it succeed on ledger?
             const result = payloadStatus.response?.result?.engine_result || 
@@ -385,7 +346,7 @@ export default function Chess() {
               console.log("✅ Payment already completed and validated on ledger!")
               localStorage.removeItem('pendingPayment')
               
-              // Join tournament directly (keep existing join code below)
+              // Join tournament directly
               console.log("✅ Joining tournament after confirmed mobile payment...")
               const joinRes = await fetch('/api/tournaments/join', {
                 method: 'POST',
@@ -409,15 +370,13 @@ export default function Chess() {
               
               console.log("🚀 Redirecting to waiting room from mobile...")
               window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
-              return // ✅ Exit early - success path complete!
+              return
               
             } else if (result && (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter"))) {
-              // Transaction failed on ledger (insufficient funds, etc.)
               console.error("❌ Transaction failed on ledger:", result)
               localStorage.removeItem('pendingPayment')
               throw new Error(`Transaction failed: ${result}`)
             } else {
-              // Some other result we don't recognize - log and try WebSocket
               console.log("⚠️ Unexpected result, falling back to WebSocket:", result)
             }
           }
@@ -425,14 +384,12 @@ export default function Chess() {
           console.warn("⚠️ Could not check payload status (HTTP error), falling back to WebSocket")
         }
       } catch (apiError: any) {
-        // If it's one of OUR thrown errors (rejected, expired, failed), re-throw it
         if (apiError.message?.includes("rejected") || 
             apiError.message?.includes("expired") || 
             apiError.message?.includes("Transaction failed:") ||
             apiError.message?.includes("Failed to join tournament")) {
-          throw apiError // Re-throw to outer catch block
+          throw apiError
         }
-        // Otherwise just log and continue to WebSocket fallback
         console.warn("⚠️ API check failed, falling back to WebSocket:", apiError)
       }
       
@@ -445,17 +402,16 @@ export default function Chess() {
         const timeoutId = setTimeout(() => {
           console.log("⏱️ Payment WebSocket timeout (3 minutes)")
           ws.close()
-          localStorage.removeItem('pendingPayment') // ✅ ADDED: Clean up on timeout
+          localStorage.removeItem('pendingPayment')
           if (!txValidated) {
             reject(new Error("Payment request timed out - please try again"))
           }
-        }, 3 * 60 * 1000) // 3 minutes (was 5 before)
+        }, 3 * 60 * 1000)
         
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
           console.log("📡 Mobile WebSocket:", JSON.stringify(status, null, 2))
           
-          // User rejected
           if (status.signed === false) {
             clearTimeout(timeoutId)
             ws.close()
@@ -463,7 +419,6 @@ export default function Chess() {
             return
           }
           
-          // ✅ COMPREHENSIVE CHECK: Multiple ways to detect success
           const shouldCheckResult = 
             status.signed === true ||
             status.payload_resolved === true ||
@@ -471,7 +426,6 @@ export default function Chess() {
             status.dispatched === true
 
           if (shouldCheckResult && !txValidated) {
-            // Try multiple ways to get the result
             const result = status.result?.engine_result || 
                            status.meta?.TransactionResult ||
                            status.response?.engine_result
@@ -494,7 +448,6 @@ export default function Chess() {
                 console.log("⏳ Waiting for final result...")
               }
             } else if (status.signed === true) {
-              // ✅ FALLBACK: Signed but no result yet - wait then accept
               console.log("✍️ Signed, waiting 3 seconds for ledger confirmation...")
               setTimeout(() => {
                 if (!txValidated) {
@@ -512,7 +465,7 @@ export default function Chess() {
         ws.onerror = (error) => {
           console.error("❌ Mobile WebSocket error:", error)
           clearTimeout(timeoutId)
-          localStorage.removeItem('pendingPayment') // ✅ ADDED: Clean up on error
+          localStorage.removeItem('pendingPayment')
           if (!txValidated) {
             reject(new Error("Connection error"))
           }
@@ -525,10 +478,8 @@ export default function Chess() {
       
       await paymentPromise
       
-      // ✅ FIX: Clear from localStorage
       localStorage.removeItem('pendingPayment')
       
-      // Join tournament
       console.log("✅ Joining tournament after mobile payment...")
       const joinRes = await fetch('/api/tournaments/join', {
         method: 'POST',
@@ -545,21 +496,18 @@ export default function Chess() {
       const joinData = await joinRes.json()
       console.log("✅ Joined tournament after mobile payment:", joinData.tournamentId)
       
-      // Check for already joined
       if (joinRes.status === 409 && joinData.tournamentId) {
         console.log("⚠️ Player already in tournament:", joinData.tournamentId)
         alert("You're already in a tournament!\n\nRedirecting...")
       }
       
-      // Redirect to waiting room
       console.log("🚀 Redirecting to waiting room from mobile...")
       window.location.href = `/waiting-room?tournamentId=${joinData.tournamentId}`
       
     } catch (err: any) {
       console.error("❌ Mobile payment resume error:", err)
-      localStorage.removeItem('pendingPayment') // ✅ Ensure cleanup happens
+      localStorage.removeItem('pendingPayment')
       
-      // ✅ IMPROVED: More detailed error messages with context
       let errorMessage = "Payment verification failed"
       let shouldRetry = true
       
@@ -730,108 +678,7 @@ export default function Chess() {
     }, 300)
   }
 
-  // ✅ NEW UUID-BASED LOGIN - Start verification polling
-  async function startLoginVerification(uuid: string) {
-    console.log('[VERIFY] Starting verification for UUID:', uuid)
-    
-    const maxAttempts = 60 // 60 seconds (1 attempt per second)
-    let attempts = 0
-    
-    const pollStatus = async (): Promise<boolean> => {
-      attempts++
-      console.log(`[VERIFY] Attempt ${attempts}/${maxAttempts}`)
-      
-      try {
-        const response = await fetch(`/api/auth/xaman/verify-signin/${uuid}`)
-        
-        if (!response.ok) {
-          console.error('[VERIFY] API error:', response.status)
-          return false
-        }
-        
-        const data = await response.json()
-        console.log('[VERIFY] Response:', data)
-        
-        // Check if signed
-        if (data.signed === true) {
-          console.log('[VERIFY] ✅ SIGNED!')
-          
-          // Check for account
-          if (!data.account) {
-            console.error('[VERIFY] ❌ Signed but no account!')
-            console.log('[VERIFY] Full data:', JSON.stringify(data, null, 2))
-            return false
-          }
-          
-          console.log('[VERIFY] ✅ Account found:', data.account)
-          
-          // Save to localStorage
-          localStorage.setItem('playerID', data.account)
-          console.log('[VERIFY] ✅ Saved to localStorage')
-          
-          // Clear session storage
-          sessionStorage.removeItem('xaman_signin_uuid')
-          sessionStorage.removeItem('xaman_login_timestamp')
-          sessionStorage.removeItem('xaman_waiting_mobile')
-          sessionStorage.removeItem('waitingForLogin')
-          sessionStorage.removeItem('signinUuid')
-          console.log('[VERIFY] ✅ Cleared sessionStorage')
-          
-          // Create profile
-          await getOrCreateProfile(data.account)
-          
-          // Update React state
-          setPlayerID(data.account)
-          setLoadingLogin(false)
-          
-          console.log('[VERIFY] ✅✅✅ LOGIN COMPLETE ✅✅✅')
-          alert(`Logged in successfully!\nWallet: ${data.account.slice(0,10)}...${data.account.slice(-6)}`)
-          return true
-          
-        } else if (data.signed === false) {
-          console.log('[VERIFY] ❌ User rejected sign-in')
-          throw new Error('Sign-in was rejected')
-          
-        } else {
-          // Still pending
-          console.log('[VERIFY] ⏳ Still pending...')
-          return false
-        }
-        
-      } catch (error) {
-        console.error('[VERIFY] Error during attempt:', error)
-        return false
-      }
-    }
-    
-    // Polling loop
-    const poll = async () => {
-      while (attempts < maxAttempts) {
-        const success = await pollStatus()
-        
-        if (success) {
-          return // Success! Exit
-        }
-        
-        // Wait 1 second before next attempt
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      }
-      
-      // Timeout
-      console.error('[VERIFY] ❌ Timeout after', maxAttempts, 'attempts')
-      setLoadingLogin(false)
-      alert('Login verification timed out. Please try again.')
-      sessionStorage.removeItem('xaman_signin_uuid')
-      sessionStorage.removeItem('xaman_login_timestamp')
-      sessionStorage.removeItem('xaman_waiting_mobile')
-      sessionStorage.removeItem('waitingForLogin')
-      sessionStorage.removeItem('signinUuid')
-    }
-    
-    poll()
-  }
-
-  // ✅ NEW UUID-BASED LOGIN - Main handler
+  // ✅ SINGLE UUID-BASED LOGIN - Main handler
   async function handleLogin() {
     console.log('[LOGIN] Starting login flow')
     setLoadingLogin(true)
@@ -845,7 +692,6 @@ export default function Chess() {
           'Content-Type': 'application/json',
           'x-xahau-network': network
         },
-        body: JSON.stringify({ returnUrl: `${window.location.origin}/chess` }),
       })
 
       if (!response.ok) {
@@ -855,7 +701,7 @@ export default function Chess() {
       const data = await response.json()
       console.log('[LOGIN] Sign-in request created:', {
         uuid: data.uuid,
-        hasNext: !!data.nextUrl,
+        hasNext: !!data.next,
       })
 
       if (!data.uuid) {
@@ -866,27 +712,22 @@ export default function Chess() {
       const uuid = data.uuid
       sessionStorage.setItem('xaman_signin_uuid', uuid)
       sessionStorage.setItem('xaman_login_timestamp', Date.now().toString())
-      sessionStorage.setItem('waitingForLogin', 'true')
-      sessionStorage.setItem('signinUuid', uuid)
       console.log('[LOGIN] UUID stored in sessionStorage:', uuid)
 
       // Step 3: Check if mobile or desktop
       const isMobile = isMobileOrTablet()
       console.log('[LOGIN] Device type:', isMobile ? 'MOBILE' : 'DESKTOP')
 
-      if (isMobile && data.nextUrl) {
+      if (isMobile && data.next?.always) {
         // MOBILE FLOW: Redirect to Xaman, then poll on return
         console.log('[LOGIN] Mobile detected - redirecting to Xaman')
-        console.log('[LOGIN] Redirect URL:', data.nextUrl)
+        console.log('[LOGIN] Redirect URL:', data.next.always)
         
         // Mark that we're waiting for mobile return
         sessionStorage.setItem('xaman_waiting_mobile', 'true')
         
         // Redirect to Xaman
-        window.location.href = data.nextUrl
-        
-        // Note: Code execution stops here due to redirect
-        // Polling will happen when user returns (see useEffect)
+        window.location.href = data.next.always
         
       } else {
         // DESKTOP FLOW: Start polling immediately
@@ -901,8 +742,6 @@ export default function Chess() {
       sessionStorage.removeItem('xaman_signin_uuid')
       sessionStorage.removeItem('xaman_login_timestamp')
       sessionStorage.removeItem('xaman_waiting_mobile')
-      sessionStorage.removeItem('waitingForLogin')
-      sessionStorage.removeItem('signinUuid')
     }
   }
 
@@ -1014,7 +853,6 @@ export default function Chess() {
     window.location.reload()
   }
 
-  // ✅ FIXED: Create payment FIRST, join tournament AFTER confirmation
   async function handlePayFeeHook() {
     if (!playerID) {
       alert("Please connect your wallet first!")
@@ -1038,7 +876,6 @@ export default function Chess() {
       console.log(`🪝 Starting Hook payment on ${network.toUpperCase()}...`)
       console.log(`🪝 Hook Address: ${hookAddress}`)
 
-      // ✅ STEP 1: Create payment payload FIRST (before database write)
       console.log("📤 Creating Xaman payload BEFORE joining tournament...")
       
       const tempMemoData = {
@@ -1080,7 +917,6 @@ export default function Chess() {
 
       console.log("✅ Xaman payload created:", uuid)
 
-      // ✅ STEP 2: Open Xaman correctly by device type using comprehensive detection
       const isMobileDevice = isMobileOrTablet()
       
       let xamanPopup: Window | null = null
@@ -1088,15 +924,13 @@ export default function Chess() {
       console.log("📱 Payment device detection:", isMobileDevice ? "MOBILE/TABLET/PWA" : "DESKTOP")
 
       if (isMobileDevice) {
-        // MOBILE/TABLET/PWA: Direct deep-link push to Xaman app (no browser popup/tab)
         console.log("📱 Mobile/Tablet/PWA: Direct push to Xaman app...")
         
-        // ✅ FIX: Store payment state in localStorage (survives app switching!)
         localStorage.setItem('pendingPayment', JSON.stringify({
           uuid,
           websocketUrl,
-          timestamp: Date.now(), // ✅ ADDED: Track when payment was created
-          network, // ✅ ADDED: Track which network (testnet/mainnet)
+          timestamp: Date.now(),
+          network,
           tournamentData: {
             playerAddress: playerID,
             tournamentSize: selectedSize,
@@ -1106,14 +940,10 @@ export default function Chess() {
           }
         }))
 
-        // Direct push - this should open Xaman app immediately
         window.location.href = nextUrl
-
-        // Function exits here - page will reload/continue when user returns from Xaman
         return
 
       } else {
-        // DESKTOP/LAPTOP: Safe popup window
         console.log("💻 Desktop: Opening Xaman popup window...")
         xamanPopup = window.open(nextUrl, "_blank", "width=480,height=720")
         
@@ -1131,7 +961,6 @@ export default function Chess() {
       }
       console.log("⏳ Waiting for payment confirmation via WebSocket...")
 
-      // ✅ STEP 3: Wait for ledger validation
       const ws = new WebSocket(websocketUrl)
       
       const paymentPromise = new Promise<boolean>((resolve, reject) => {
@@ -1149,10 +978,8 @@ export default function Chess() {
         ws.onmessage = (event) => {
           const status = JSON.parse(event.data)
           
-          // ✅ LOG EVERYTHING for debugging
           console.log("📡 WebSocket received:", JSON.stringify(status, null, 2))
 
-          // User rejected
           if (status.signed === false) {
             clearTimeout(timeoutId)
             if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
@@ -1162,7 +989,6 @@ export default function Chess() {
             return
           }
 
-          // ✅ IMPROVED: Multiple ways to detect success
           const shouldCheckResult = 
             status.signed === true ||
             status.payload_resolved === true ||
@@ -1170,7 +996,6 @@ export default function Chess() {
             status.dispatched === true
 
           if (shouldCheckResult && !txValidated) {
-            // Try multiple ways to get the result
             const result = status.result?.engine_result || 
                            status.meta?.TransactionResult ||
                            status.response?.engine_result
@@ -1186,7 +1011,6 @@ export default function Chess() {
                 ws.close()
                 resolve(true)
               } else if (result.startsWith("tec") || result.startsWith("tef") || result.startsWith("ter")) {
-                // Transaction failed
                 clearTimeout(timeoutId)
                 if (xamanPopup && !xamanPopup.closed) xamanPopup.close()
                 console.error("❌ TX FAILED:", result)
@@ -1196,7 +1020,6 @@ export default function Chess() {
                 console.log("⏳ Waiting for final result...")
               }
             } else if (status.signed === true) {
-              // ✅ FALLBACK: Signed but no result yet - wait a bit then accept
               console.log("✍️ Signed, waiting 3 seconds for ledger confirmation...")
               setTimeout(() => {
                 if (!txValidated) {
@@ -1228,7 +1051,6 @@ export default function Chess() {
 
       await paymentPromise
 
-      // ✅ STEP 4: ONLY NOW join tournament (after payment confirmed)
       console.log("✅ Payment confirmed ON LEDGER - now joining tournament...")
       console.log("📤 Sending join request with:", {
         playerAddress: playerID,
@@ -1262,7 +1084,6 @@ export default function Chess() {
       console.log("✅ Join API response:", joinData)
       tournamentId = joinData.tournamentId
       
-      // Check for already joined
       if (joinRes.status === 409 && joinData.tournamentId) {
         console.log("⚠️ Player already in tournament:", joinData.tournamentId)
         alert("You're already in a tournament!\n\nRedirecting...")
@@ -1272,7 +1093,6 @@ export default function Chess() {
       
       console.log("✅ Joined tournament:", tournamentId)
 
-      // ✅ STEP 5: Redirect to waiting room
       console.log("🚀 Redirecting to waiting room...")
       await new Promise(resolve => setTimeout(resolve, 1000))
       window.location.href = `/waiting-room?tournamentId=${tournamentId}`
@@ -1280,10 +1100,8 @@ export default function Chess() {
     } catch (err: any) {
       console.error("❌ Payment error:", err)
       
-      // No cleanup needed - player was never added to tournament
       console.log("ℹ️ Payment failed before joining - no database cleanup needed")
       
-      // User-friendly error messages
       let errorMessage = "Payment failed"
       if (err.message.includes("rejected")) {
         errorMessage = "Payment was cancelled"
