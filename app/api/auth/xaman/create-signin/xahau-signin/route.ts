@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     
     // ✅ CRITICAL: Use callback page for mobile PWA
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xmerch-polluxchess.vercel.app'
-    const returnUrl = `${baseUrl}/auth/xaman-callback`
+    const returnUrl = `${baseUrl}/auth/xaman/callback`
     
     // ✅ Safely parse JSON - handle empty body
     let body: any = {}
