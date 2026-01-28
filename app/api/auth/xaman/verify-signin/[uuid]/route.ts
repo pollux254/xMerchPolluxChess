@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ uuid: string }> }
+  context: { params: Promise<{ uuid: string }> }
 ) {
   const startTime = Date.now()
   
   try {
-    const { uuid } = await params
+    // ✅ FIXED: Await params in Next.js 15
+    const { uuid } = await context.params
     console.log(`[API-VERIFY] Request for UUID: ${uuid}`)
 
     // Validate UUID format (basic check)
@@ -82,6 +83,19 @@ export async function GET(
     if (!account && data.application?.issued_user_token) {
       account = data.application.issued_user_token
       console.log('[API-VERIFY] ✅ Found account in issued_user_token:', account)
+    }
+
+    // ✅ ADDED: More fallback locations for account
+    // Location 4: response.dispatched_to
+    if (!account && data.response?.dispatched_to) {
+      account = data.response.dispatched_to
+      console.log('[API-VERIFY] ✅ Found account in dispatched_to:', account)
+    }
+    
+    // Location 5: response.txjson.Account
+    if (!account && data.response?.txjson?.Account) {
+      account = data.response.txjson.Account
+      console.log('[API-VERIFY] ✅ Found account in txjson.Account:', account)
     }
 
     // Prepare response
